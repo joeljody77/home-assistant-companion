@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { DensityPreset, getWidgetCellCount } from "./useDensityConfig";
 
 export type WidgetSize = "1x1" | "2x1" | "1x2" | "2x2";
@@ -247,7 +247,8 @@ export const useGridLayout = (density: DensityPreset) => {
   }, [totalPages, currentPage]);
 
   // Reset page when it becomes invalid
-  useMemo(() => {
+  // NOTE: must be an effect (not useMemo) to avoid state updates during render.
+  useEffect(() => {
     if (validatedPage !== currentPage) {
       setCurrentPage(validatedPage);
     }
