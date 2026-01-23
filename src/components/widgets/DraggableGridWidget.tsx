@@ -1,15 +1,10 @@
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Maximize2, Minimize2 } from "lucide-react";
+import { GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { WidgetSize, getWidgetDimensions } from "@/hooks/useGridLayout";
-import { GridPosition } from "@/hooks/useGridLayout";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { WidgetSize, getWidgetDimensions, GridPosition } from "@/hooks/useGridLayout";
+import { useWidgetResize } from "@/hooks/useWidgetResize";
+import { ResizeHandles } from "./ResizeHandles";
 
 interface DraggableGridWidgetProps {
   id: string;
@@ -17,15 +12,12 @@ interface DraggableGridWidgetProps {
   isEditMode?: boolean;
   size: WidgetSize;
   position: GridPosition;
-  onResize?: (size: WidgetSize) => void;
+  occupiedCells: Set<string>;
+  gridCols: number;
+  gridRows: number;
+  gridRef: React.RefObject<HTMLDivElement>;
+  onResize?: (size: WidgetSize, newPosition: GridPosition) => void;
 }
-
-const sizeOptions: { value: WidgetSize; label: string }[] = [
-  { value: "1x1", label: "Small (1×1)" },
-  { value: "2x1", label: "Wide (2×1)" },
-  { value: "1x2", label: "Tall (1×2)" },
-  { value: "2x2", label: "Large (2×2)" },
-];
 
 export const DraggableGridWidget = ({ 
   id, 
@@ -33,6 +25,10 @@ export const DraggableGridWidget = ({
   isEditMode = false, 
   size,
   position,
+  occupiedCells,
+  gridCols,
+  gridRows,
+  gridRef,
   onResize 
 }: DraggableGridWidgetProps) => {
   const {
@@ -53,11 +49,35 @@ export const DraggableGridWidget = ({
 
   const { cols, rows } = getWidgetDimensions(size);
 
+  const {
+    resizeState,
+    handleResizeStart,
+    handleResizeMove,
+    handleResizeEnd,
+  } = useWidgetResize({
+    widgetId: id,
+    position,
+    size,
+    occupiedCells,
+    gridCols,
+    gridRows,
+    gridRef,
+    onResize: (newSize, newPosition) => onResize?.(newSize, newPosition),
+    isEditMode,
+  });
+
+  // Use preview dimensions during resize, otherwise use actual dimensions
+  const displayCols = resizeState.isResizing ? resizeState.previewCols : cols;
+  const displayRows = resizeState.isResizing ? resizeState.previewRows : rows;
+  const displayPosition = resizeState.isResizing && resizeState.previewPosition 
+    ? resizeState.previewPosition 
+    : position;
+
   const style = {
     transform: CSS.Transform.toString(transform),
-    gridColumn: `${position.col + 1} / span ${cols}`,
-    gridRow: `${position.row + 1} / span ${rows}`,
-    zIndex: isDragging ? 50 : undefined,
+    gridColumn: `${displayPosition.col + 1} / span ${displayCols}`,
+    gridRow: `${displayPosition.row + 1} / span ${displayRows}`,
+    zIndex: isDragging || resizeState.isResizing ? 50 : undefined,
   };
 
   return (
@@ -65,9 +85,10 @@ export const DraggableGridWidget = ({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "relative h-full",
+        "relative h-full transition-all",
         isDragging && "opacity-50 scale-95",
-        isEditMode && "ring-2 ring-primary/30 ring-offset-2 ring-offset-background rounded-2xl"
+        resizeState.isResizing && "ring-2 ring-primary shadow-lg",
+        isEditMode && !resizeState.isResizing && "ring-2 ring-primary/30 ring-offset-2 ring-offset-background rounded-2xl"
       )}
     >
       {isEditMode && (
@@ -76,37 +97,18 @@ export const DraggableGridWidget = ({
           <button
             {...attributes}
             {...listeners}
-            className="absolute -top-2 -right-2 z-10 p-1.5 rounded-full bg-primary text-primary-foreground shadow-lg cursor-grab active:cursor-grabbing hover:scale-110 transition-transform"
+            className="absolute -top-2 -right-2 z-30 p-1.5 rounded-full bg-primary text-primary-foreground shadow-lg cursor-grab active:cursor-grabbing hover:scale-110 transition-transform"
           >
             <GripVertical className="w-4 h-4" />
           </button>
 
-          {/* Resize dropdown */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="absolute -top-2 -left-2 z-10 p-1.5 rounded-full bg-accent text-accent-foreground shadow-lg hover:scale-110 transition-transform">
-                {size === "1x1" ? (
-                  <Maximize2 className="w-4 h-4" />
-                ) : (
-                  <Minimize2 className="w-4 h-4" />
-                )}
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-36">
-              {sizeOptions.map((option) => (
-                <DropdownMenuItem
-                  key={option.value}
-                  onClick={() => onResize?.(option.value)}
-                  className={cn(
-                    "cursor-pointer",
-                    size === option.value && "bg-primary/10 text-primary"
-                  )}
-                >
-                  {option.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* Resize handles on edges and corners */}
+          <ResizeHandles
+            onResizeStart={handleResizeStart}
+            onResizeMove={handleResizeMove}
+            onResizeEnd={handleResizeEnd}
+            isResizing={resizeState.isResizing}
+          />
         </>
       )}
       {children}

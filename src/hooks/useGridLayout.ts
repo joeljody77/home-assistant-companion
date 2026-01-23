@@ -359,10 +359,12 @@ export const useGridLayout = (density: DensityPreset) => {
     });
   }, [density.columns, density.rows, pages, currentPage]);
 
-  const resizeWidget = useCallback((widgetId: string, newSize: WidgetSize) => {
+  const resizeWidget = useCallback((widgetId: string, newSize: WidgetSize, newPosition?: GridPosition) => {
     setWidgets((items) => {
       const newItems = items.map((item) =>
-        item.id === widgetId ? { ...item, size: newSize } : item
+        item.id === widgetId 
+          ? { ...item, size: newSize, ...(newPosition && { position: newPosition }) } 
+          : item
       );
       saveLayout(newItems);
       return newItems;
