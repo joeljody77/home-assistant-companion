@@ -4,11 +4,13 @@ import { WidgetGrid } from "@/components/widgets/WidgetGrid";
 import { useGridLayout } from "@/hooks/useGridLayout";
 import { useDensityConfig } from "@/hooks/useDensityConfig";
 import { DensitySettingsDialog } from "@/components/DensitySettingsDialog";
+import { AddWidgetDialog } from "@/components/AddWidgetDialog";
 import { PageIndicator } from "@/components/PageIndicator";
 
 const Index = () => {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [densityDialogOpen, setDensityDialogOpen] = useState(false);
+  const [addWidgetDialogOpen, setAddWidgetDialogOpen] = useState(false);
   
   const { presetIndex, currentPreset, setDensity } = useDensityConfig();
   const { 
@@ -19,6 +21,7 @@ const Index = () => {
     resizeWidget,
     moveWidget,
     deleteWidget,
+    addWidget,
     currentPage,
     setCurrentPage,
     totalPages,
@@ -35,6 +38,7 @@ const Index = () => {
         onToggleEditMode={toggleEditMode}
         onOpenDensity={() => setDensityDialogOpen(true)}
         onResetLayout={resetLayout}
+        onAddWidget={() => setAddWidgetDialogOpen(true)}
       />
       
       <main className="ml-20 flex-1 flex flex-col overflow-hidden">
@@ -66,6 +70,13 @@ const Index = () => {
         presetIndex={presetIndex}
         onPresetChange={setDensity}
         currentPreset={currentPreset}
+      />
+
+      {/* Add Widget Dialog */}
+      <AddWidgetDialog
+        open={addWidgetDialogOpen}
+        onOpenChange={setAddWidgetDialogOpen}
+        onAddWidget={addWidget}
       />
     </div>
   );

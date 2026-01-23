@@ -415,6 +415,21 @@ export const useGridLayout = (density: DensityPreset) => {
     });
   }, []);
 
+  const addWidget = useCallback((type: string, props: Record<string, unknown>) => {
+    setWidgets((currentWidgets) => {
+      const newId = `${type}-${Date.now()}`;
+      const newWidget: WidgetConfig = {
+        id: newId,
+        type,
+        props,
+        size: "1x1",
+      };
+      const newWidgets = [...currentWidgets, newWidget];
+      saveLayout(newWidgets);
+      return newWidgets;
+    });
+  }, []);
+
   const resetLayout = useCallback(() => {
     setWidgets(defaultWidgets);
     saveLayout(defaultWidgets);
@@ -429,6 +444,7 @@ export const useGridLayout = (density: DensityPreset) => {
     resizeWidget,
     moveWidget,
     deleteWidget,
+    addWidget,
     currentPage,
     setCurrentPage,
     totalPages,
