@@ -25,6 +25,10 @@ interface WidgetGridProps {
   onMoveWidget: (widgetId: string, targetPosition: GridPosition) => void;
   onResizeWidget: (widgetId: string, newSize: WidgetSize, newPosition: GridPosition, customCols?: number, customRows?: number) => void;
   onDeleteWidget: (widgetId: string) => void;
+  isCellSelectionMode?: boolean;
+  occupiedCells?: Set<string>;
+  selectedCell?: GridPosition | null;
+  onCellSelect?: (col: number, row: number) => void;
 }
 
 export const WidgetGrid = ({
@@ -35,6 +39,10 @@ export const WidgetGrid = ({
   onMoveWidget,
   onResizeWidget,
   onDeleteWidget,
+  isCellSelectionMode = false,
+  occupiedCells,
+  selectedCell,
+  onCellSelect,
 }: WidgetGridProps) => {
   const [activeWidget, setActiveWidget] = useState<WidgetConfig | null>(null);
   const [hoveredCell, setHoveredCell] = useState<GridPosition | null>(null);
@@ -124,14 +132,24 @@ export const WidgetGrid = ({
         }}
       >
         {/* Grid cell drop targets (only in edit mode) */}
-        {isEditMode && gridCells.map(({ col, row }) => (
-          <GridCell
-            key={`cell-${col}-${row}`}
-            col={col}
-            row={row}
-            isEditMode={isEditMode}
-          />
-        ))}
+        {isEditMode && gridCells.map(({ col, row }) => {
+          const cellKey = `${col},${row}`;
+          const isOccupied = occupiedCells?.has(cellKey) ?? false;
+          const isSelected = selectedCell?.col === col && selectedCell?.row === row;
+          
+          return (
+            <GridCell
+              key={`cell-${col}-${row}`}
+              col={col}
+              row={row}
+              isEditMode={isEditMode}
+              isCellSelectionMode={isCellSelectionMode}
+              isOccupied={isOccupied}
+              isSelected={isSelected}
+              onCellSelect={onCellSelect}
+            />
+          );
+        })}
 
         {/* Drag preview overlay showing where widget will land */}
         {activeWidget && hoveredCell && (

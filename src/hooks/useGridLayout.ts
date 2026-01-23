@@ -415,7 +415,7 @@ export const useGridLayout = (density: DensityPreset) => {
     });
   }, []);
 
-  const addWidget = useCallback((type: string, props: Record<string, unknown>) => {
+  const addWidget = useCallback((type: string, props: Record<string, unknown>, position?: GridPosition) => {
     setWidgets((currentWidgets) => {
       const newId = `${type}-${Date.now()}`;
       const newWidget: WidgetConfig = {
@@ -423,6 +423,7 @@ export const useGridLayout = (density: DensityPreset) => {
         type,
         props,
         size: "1x1",
+        position, // Use provided position or let auto-place handle it
       };
       const newWidgets = [...currentWidgets, newWidget];
       saveLayout(newWidgets);

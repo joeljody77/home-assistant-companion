@@ -82,21 +82,28 @@ const widgetTypes: WidgetTypeOption[] = [
   },
 ];
 
+interface GridPosition {
+  col: number;
+  row: number;
+}
+
 interface AddWidgetDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAddWidget: (type: string, props: Record<string, unknown>) => void;
+  onAddWidget: (type: string, props: Record<string, unknown>, position?: GridPosition) => void;
+  selectedCell?: GridPosition | null;
 }
 
 export const AddWidgetDialog = ({
   open,
   onOpenChange,
   onAddWidget,
+  selectedCell,
 }: AddWidgetDialogProps) => {
   const [selectedType, setSelectedType] = useState<string | null>(null);
 
   const handleSelect = (widget: WidgetTypeOption) => {
-    onAddWidget(widget.type, widget.defaultProps);
+    onAddWidget(widget.type, widget.defaultProps, selectedCell || undefined);
     setSelectedType(null);
     onOpenChange(false);
   };
