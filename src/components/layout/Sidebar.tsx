@@ -6,13 +6,21 @@ import {
   Camera, 
   Music2,
   Settings,
-  LayoutGrid
+  LayoutGrid,
+  Grid3X3,
+  Pencil,
+  Check,
+  RotateCcw
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SidebarProps {
   activeSection: string;
   onSectionChange: (section: string) => void;
+  isEditMode?: boolean;
+  onToggleEditMode?: () => void;
+  onOpenDensity?: () => void;
+  onResetLayout?: () => void;
 }
 
 const menuItems = [
@@ -24,7 +32,14 @@ const menuItems = [
   { id: "media", icon: Music2, label: "Media" },
 ];
 
-export const Sidebar = ({ activeSection, onSectionChange }: SidebarProps) => {
+export const Sidebar = ({ 
+  activeSection, 
+  onSectionChange,
+  isEditMode = false,
+  onToggleEditMode,
+  onOpenDensity,
+  onResetLayout,
+}: SidebarProps) => {
   return (
     <aside className="fixed left-0 top-0 h-screen w-20 bg-sidebar flex flex-col items-center py-6 border-r border-sidebar-border z-50">
       {/* Logo */}
@@ -52,6 +67,43 @@ export const Sidebar = ({ activeSection, onSectionChange }: SidebarProps) => {
           </button>
         ))}
       </nav>
+
+      {/* Layout Controls */}
+      <div className="flex flex-col gap-2 mb-4">
+        {/* Density Button */}
+        <button
+          onClick={onOpenDensity}
+          className="w-12 h-12 rounded-xl flex items-center justify-center text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all duration-200"
+          title="Grid Density"
+        >
+          <Grid3X3 className="w-5 h-5" />
+        </button>
+
+        {/* Reset Button - only in edit mode */}
+        {isEditMode && (
+          <button
+            onClick={onResetLayout}
+            className="w-12 h-12 rounded-xl flex items-center justify-center text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all duration-200"
+            title="Reset Layout"
+          >
+            <RotateCcw className="w-5 h-5" />
+          </button>
+        )}
+
+        {/* Edit Mode Toggle */}
+        <button
+          onClick={onToggleEditMode}
+          className={cn(
+            "w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-200",
+            isEditMode
+              ? "bg-primary text-primary-foreground shadow-lg"
+              : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          )}
+          title={isEditMode ? "Done Editing" : "Edit Layout"}
+        >
+          {isEditMode ? <Check className="w-5 h-5" /> : <Pencil className="w-5 h-5" />}
+        </button>
+      </div>
 
       {/* Settings */}
       <button
