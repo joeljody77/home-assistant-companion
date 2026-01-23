@@ -223,7 +223,39 @@ export const useGridLayout = (density: DensityPreset) => {
     }
   }, [validatedPage, currentPage]);
 
-  // Move widget to a new position (swap if target is occupied)
+  // Find nearest empty position from a target
+  const findNearestEmptyPosition = useCallback((
+    targetPosition: GridPosition,
+    size: WidgetSize,
+    occupiedCellsSet: Set<string>,
+    gridCols: number,
+    gridRows: number
+  ): GridPosition | null => {
+    const { cols, rows } = getWidgetDimensions(size);
+    
+    // Search in expanding rings around the target position
+    for (let distance = 0; distance < Math.max(gridCols, gridRows); distance++) {
+      for (let dy = -distance; dy <= distance; dy++) {
+        for (let dx = -distance; dx <= distance; dx++) {
+          // Only check cells at exactly this distance (perimeter of square)
+          if (Math.abs(dx) !== distance && Math.abs(dy) !== distance) continue;
+          
+          const testPos: GridPosition = {
+            col: targetPosition.col + dx,
+            row: targetPosition.row + dy,
+          };
+          
+          if (canPlaceWidget(testPos, size, occupiedCellsSet, gridCols, gridRows)) {
+            return testPos;
+          }
+        }
+      }
+    }
+    
+    return null;
+  }, []);
+
+  // Move widget to a new position (find nearest empty spot if occupied)
   const moveWidget = useCallback((
     widgetId: string,
     targetPosition: GridPosition
@@ -235,50 +267,57 @@ export const useGridLayout = (density: DensityPreset) => {
       const widget = currentWidgets[widgetIndex];
       const { cols, rows } = getWidgetDimensions(widget.size);
       
-      // Check bounds
-      if (targetPosition.col < 0 || targetPosition.row < 0) return currentWidgets;
-      if (targetPosition.col + cols > density.columns) return currentWidgets;
-      if (targetPosition.row + rows > density.rows) return currentWidgets;
-      
-      // Get the target cells
-      const targetCells = getOccupiedCells(targetPosition, widget.size);
-      
-      // Find any widget that occupies these target cells
+      // Get current page widgets excluding the dragged widget
       const currentPageWidgets = pages[currentPage] || [];
-      const overlappingWidget = currentPageWidgets.find(w => {
-        if (w.id === widgetId || !w.position) return false;
-        const wCells = getOccupiedCells(w.position, w.size);
-        return wCells.some(cell => targetCells.includes(cell));
-      });
+      const occupiedCellsSet = getPageOccupiedCells(currentPageWidgets, widgetId);
       
-      if (overlappingWidget) {
-        // Swap positions between the two widgets
-        const newWidgets = currentWidgets.map(w => {
-          if (w.id === widgetId) {
-            return { ...w, position: targetPosition };
-          }
-          if (w.id === overlappingWidget.id && widget.position) {
-            return { ...w, position: widget.position };
-          }
-          return w;
-        });
-        
-        // Re-order array to reflect new positions for proper auto-placement
-        const reorderedWidgets = reorderWidgetsByPosition(newWidgets, density.columns, density.rows);
-        saveLayout(reorderedWidgets);
-        return reorderedWidgets;
-      } else {
-        // Just move the widget
-        const newWidgets = currentWidgets.map(w => 
-          w.id === widgetId ? { ...w, position: targetPosition } : w
+      // First, try the exact target position
+      let finalPosition = targetPosition;
+      
+      // Check if target position is valid (within bounds)
+      const isWithinBounds = 
+        targetPosition.col >= 0 && 
+        targetPosition.row >= 0 &&
+        targetPosition.col + cols <= density.columns &&
+        targetPosition.row + rows <= density.rows;
+      
+      if (!isWithinBounds) {
+        // Clamp to valid bounds first
+        finalPosition = {
+          col: Math.max(0, Math.min(targetPosition.col, density.columns - cols)),
+          row: Math.max(0, Math.min(targetPosition.row, density.rows - rows)),
+        };
+      }
+      
+      // Check if the position is available
+      if (!canPlaceWidget(finalPosition, widget.size, occupiedCellsSet, density.columns, density.rows)) {
+        // Find nearest empty spot
+        const nearestPos = findNearestEmptyPosition(
+          finalPosition,
+          widget.size,
+          occupiedCellsSet,
+          density.columns,
+          density.rows
         );
         
-        const reorderedWidgets = reorderWidgetsByPosition(newWidgets, density.columns, density.rows);
-        saveLayout(reorderedWidgets);
-        return reorderedWidgets;
+        if (nearestPos) {
+          finalPosition = nearestPos;
+        } else {
+          // No valid position found, don't move
+          return currentWidgets;
+        }
       }
+      
+      // Move the widget to the final position
+      const newWidgets = currentWidgets.map(w => 
+        w.id === widgetId ? { ...w, position: finalPosition } : w
+      );
+      
+      const reorderedWidgets = reorderWidgetsByPosition(newWidgets, density.columns, density.rows);
+      saveLayout(reorderedWidgets);
+      return reorderedWidgets;
     });
-  }, [density.columns, density.rows, pages, currentPage]);
+  }, [density.columns, density.rows, pages, currentPage, findNearestEmptyPosition]);
 
   const resizeWidget = useCallback((widgetId: string, newSize: WidgetSize) => {
     setWidgets((items) => {
