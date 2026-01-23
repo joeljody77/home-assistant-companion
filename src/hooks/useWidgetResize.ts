@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { GridPosition, WidgetSize, getWidgetDimensions, canPlaceWidget } from "./useGridLayout";
+import { GridPosition, WidgetSize, getWidgetDimensions } from "./useGridLayout";
 
 export type ResizeEdge = "top" | "right" | "bottom" | "left" | "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
@@ -55,6 +55,12 @@ export const useWidgetResize = ({
   });
 
   const initialPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const resizeStateRef = useRef(resizeState);
+  
+  // Keep ref in sync with state for use in event handlers
+  useEffect(() => {
+    resizeStateRef.current = resizeState;
+  }, [resizeState]);
 
   const getCellDimensions = useCallback(() => {
     if (!gridRef.current) return { cellWidth: 0, cellHeight: 0 };
@@ -110,115 +116,122 @@ export const useWidgetResize = ({
       previewCols: cols,
       previewRows: rows,
     });
-    
-    // Capture pointer for tracking outside element
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
   }, [isEditMode, position, size]);
 
-  const handleResizeMove = useCallback((e: React.PointerEvent) => {
-    if (!resizeState.isResizing || !resizeState.startPosition || !resizeState.startSize) return;
-    if (!initialPointerRef.current) return;
-    
-    const { cellWidth, cellHeight } = getCellDimensions();
-    if (cellWidth === 0 || cellHeight === 0) return;
-    
-    const deltaX = e.clientX - initialPointerRef.current.x;
-    const deltaY = e.clientY - initialPointerRef.current.y;
-    
-    const deltaCols = Math.round(deltaX / cellWidth);
-    const deltaRows = Math.round(deltaY / cellHeight);
-    
-    const { cols: startCols, rows: startRows } = getWidgetDimensions(resizeState.startSize);
-    const edge = resizeState.edge;
-    
-    let newCol = resizeState.startPosition.col;
-    let newRow = resizeState.startPosition.row;
-    let newCols = startCols;
-    let newRows = startRows;
-    
-    // Calculate new dimensions based on which edge is being dragged
-    switch (edge) {
-      case "right":
-        newCols = Math.max(1, Math.min(2, startCols + deltaCols));
-        break;
-      case "left":
-        const leftDelta = Math.max(-resizeState.startPosition.col, Math.min(startCols - 1, -deltaCols));
-        newCol = resizeState.startPosition.col - leftDelta;
-        newCols = Math.max(1, Math.min(2, startCols + leftDelta));
-        break;
-      case "bottom":
-        newRows = Math.max(1, Math.min(2, startRows + deltaRows));
-        break;
-      case "top":
-        const topDelta = Math.max(-resizeState.startPosition.row, Math.min(startRows - 1, -deltaRows));
-        newRow = resizeState.startPosition.row - topDelta;
-        newRows = Math.max(1, Math.min(2, startRows + topDelta));
-        break;
-      case "bottom-right":
-        newCols = Math.max(1, Math.min(2, startCols + deltaCols));
-        newRows = Math.max(1, Math.min(2, startRows + deltaRows));
-        break;
-      case "bottom-left":
-        const blLeftDelta = Math.max(-resizeState.startPosition.col, Math.min(startCols - 1, -deltaCols));
-        newCol = resizeState.startPosition.col - blLeftDelta;
-        newCols = Math.max(1, Math.min(2, startCols + blLeftDelta));
-        newRows = Math.max(1, Math.min(2, startRows + deltaRows));
-        break;
-      case "top-right":
-        const trTopDelta = Math.max(-resizeState.startPosition.row, Math.min(startRows - 1, -deltaRows));
-        newRow = resizeState.startPosition.row - trTopDelta;
-        newRows = Math.max(1, Math.min(2, startRows + trTopDelta));
-        newCols = Math.max(1, Math.min(2, startCols + deltaCols));
-        break;
-      case "top-left":
-        const tlLeftDelta = Math.max(-resizeState.startPosition.col, Math.min(startCols - 1, -deltaCols));
-        const tlTopDelta = Math.max(-resizeState.startPosition.row, Math.min(startRows - 1, -deltaRows));
-        newCol = resizeState.startPosition.col - tlLeftDelta;
-        newRow = resizeState.startPosition.row - tlTopDelta;
-        newCols = Math.max(1, Math.min(2, startCols + tlLeftDelta));
-        newRows = Math.max(1, Math.min(2, startRows + tlTopDelta));
-        break;
-    }
-    
-    // Validate the new dimensions don't overlap with other widgets
-    const newPosition = { col: newCol, row: newRow };
-    if (canResizeTo(newPosition, newCols, newRows)) {
-      setResizeState(prev => ({
-        ...prev,
-        previewPosition: newPosition,
-        previewCols: newCols,
-        previewRows: newRows,
-      }));
-    }
-  }, [resizeState, getCellDimensions, canResizeTo]);
-
-  const handleResizeEnd = useCallback((e: React.PointerEvent) => {
+  // Handle pointer move at document level
+  useEffect(() => {
     if (!resizeState.isResizing) return;
-    
-    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-    
-    if (resizeState.previewPosition && resizeState.previewCols > 0 && resizeState.previewRows > 0) {
-      const newSize = dimensionsToSize(resizeState.previewCols, resizeState.previewRows);
-      onResize(newSize, resizeState.previewPosition);
-    }
-    
-    setResizeState({
-      isResizing: false,
-      edge: null,
-      startPosition: null,
-      startSize: null,
-      previewPosition: null,
-      previewCols: 0,
-      previewRows: 0,
-    });
-    
-    initialPointerRef.current = null;
-  }, [resizeState, onResize]);
+
+    const handlePointerMove = (e: PointerEvent) => {
+      const state = resizeStateRef.current;
+      if (!state.isResizing || !state.startPosition || !state.startSize) return;
+      if (!initialPointerRef.current) return;
+      
+      const { cellWidth, cellHeight } = getCellDimensions();
+      if (cellWidth === 0 || cellHeight === 0) return;
+      
+      const deltaX = e.clientX - initialPointerRef.current.x;
+      const deltaY = e.clientY - initialPointerRef.current.y;
+      
+      const deltaCols = Math.round(deltaX / cellWidth);
+      const deltaRows = Math.round(deltaY / cellHeight);
+      
+      const { cols: startCols, rows: startRows } = getWidgetDimensions(state.startSize);
+      const edge = state.edge;
+      
+      let newCol = state.startPosition.col;
+      let newRow = state.startPosition.row;
+      let newCols = startCols;
+      let newRows = startRows;
+      
+      // Calculate new dimensions based on which edge is being dragged
+      switch (edge) {
+        case "right":
+          newCols = Math.max(1, Math.min(2, startCols + deltaCols));
+          break;
+        case "left":
+          const leftDelta = Math.max(-state.startPosition.col, Math.min(startCols - 1, -deltaCols));
+          newCol = state.startPosition.col - leftDelta;
+          newCols = Math.max(1, Math.min(2, startCols + leftDelta));
+          break;
+        case "bottom":
+          newRows = Math.max(1, Math.min(2, startRows + deltaRows));
+          break;
+        case "top":
+          const topDelta = Math.max(-state.startPosition.row, Math.min(startRows - 1, -deltaRows));
+          newRow = state.startPosition.row - topDelta;
+          newRows = Math.max(1, Math.min(2, startRows + topDelta));
+          break;
+        case "bottom-right":
+          newCols = Math.max(1, Math.min(2, startCols + deltaCols));
+          newRows = Math.max(1, Math.min(2, startRows + deltaRows));
+          break;
+        case "bottom-left":
+          const blLeftDelta = Math.max(-state.startPosition.col, Math.min(startCols - 1, -deltaCols));
+          newCol = state.startPosition.col - blLeftDelta;
+          newCols = Math.max(1, Math.min(2, startCols + blLeftDelta));
+          newRows = Math.max(1, Math.min(2, startRows + deltaRows));
+          break;
+        case "top-right":
+          const trTopDelta = Math.max(-state.startPosition.row, Math.min(startRows - 1, -deltaRows));
+          newRow = state.startPosition.row - trTopDelta;
+          newRows = Math.max(1, Math.min(2, startRows + trTopDelta));
+          newCols = Math.max(1, Math.min(2, startCols + deltaCols));
+          break;
+        case "top-left":
+          const tlLeftDelta = Math.max(-state.startPosition.col, Math.min(startCols - 1, -deltaCols));
+          const tlTopDelta = Math.max(-state.startPosition.row, Math.min(startRows - 1, -deltaRows));
+          newCol = state.startPosition.col - tlLeftDelta;
+          newRow = state.startPosition.row - tlTopDelta;
+          newCols = Math.max(1, Math.min(2, startCols + tlLeftDelta));
+          newRows = Math.max(1, Math.min(2, startRows + tlTopDelta));
+          break;
+      }
+      
+      // Validate the new dimensions don't overlap with other widgets
+      const newPosition = { col: newCol, row: newRow };
+      if (canResizeTo(newPosition, newCols, newRows)) {
+        setResizeState(prev => ({
+          ...prev,
+          previewPosition: newPosition,
+          previewCols: newCols,
+          previewRows: newRows,
+        }));
+      }
+    };
+
+    const handlePointerUp = () => {
+      const state = resizeStateRef.current;
+      
+      if (state.previewPosition && state.previewCols > 0 && state.previewRows > 0) {
+        const newSize = dimensionsToSize(state.previewCols, state.previewRows);
+        onResize(newSize, state.previewPosition);
+      }
+      
+      setResizeState({
+        isResizing: false,
+        edge: null,
+        startPosition: null,
+        startSize: null,
+        previewPosition: null,
+        previewCols: 0,
+        previewRows: 0,
+      });
+      
+      initialPointerRef.current = null;
+    };
+
+    document.addEventListener('pointermove', handlePointerMove);
+    document.addEventListener('pointerup', handlePointerUp);
+
+    return () => {
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [resizeState.isResizing, getCellDimensions, canResizeTo, onResize]);
 
   return {
     resizeState,
     handleResizeStart,
-    handleResizeMove,
-    handleResizeEnd,
   };
 };
