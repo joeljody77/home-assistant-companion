@@ -122,14 +122,14 @@ export const MediaWidget = ({
 
   // Wide or Large layout
   return (
-    <div className="widget-card h-full flex flex-col">
-      <div className={cn("flex items-start gap-4", minDim >= 3 && "gap-6")}>
+    <div className="widget-card h-full flex flex-col min-w-0">
+      <div className={cn("flex items-start gap-4 min-w-0", minDim >= 3 && "gap-6")}>
         <div className={cn(
           "rounded-xl bg-gradient-to-br from-primary/30 to-accent/30 flex-shrink-0",
           albumSize
         )} />
 
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 overflow-hidden">
           <h3 className={cn("font-medium text-foreground truncate", titleSize)}>{track}</h3>
           <p className={cn("text-muted-foreground truncate", subtitleSize)}>{artist}</p>
           <p className={cn("text-muted-foreground/70 mt-1", minDim >= 3 ? "text-base" : "text-xs")}>{name}</p>
@@ -150,8 +150,8 @@ export const MediaWidget = ({
         </div>
       </div>
 
-      <div className={cn("flex items-center justify-between mt-auto pt-4", minDim >= 3 && "pt-6")}>
-        <div className={cn("flex items-center gap-2", minDim >= 3 && "gap-4")}>
+      <div className={cn("flex items-center justify-between mt-auto pt-4 min-w-0", minDim >= 3 && "pt-6")}>
+        <div className={cn("flex items-center gap-2 flex-shrink-0", minDim >= 3 && "gap-4")}>
           <button className="icon-button">
             <SkipBack className={cn("text-foreground", controlIconSize)} />
           </button>
@@ -176,7 +176,7 @@ export const MediaWidget = ({
           </button>
         </div>
 
-        <div className={cn("flex items-center gap-2", minDim >= 3 ? "w-48" : isLarge ? "w-36" : "w-28")}>
+        <div className={cn("flex items-center gap-2 min-w-0 flex-1 max-w-[30%]")}>
           <Volume2 className={cn("text-muted-foreground flex-shrink-0", controlIconSize)} />
           <Slider
             value={[volume]}
