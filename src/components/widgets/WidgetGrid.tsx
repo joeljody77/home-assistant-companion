@@ -23,7 +23,7 @@ interface WidgetGridProps {
   gridCols: number;
   gridRows: number;
   onMoveWidget: (widgetId: string, targetPosition: GridPosition) => void;
-  onResizeWidget: (widgetId: string, newSize: WidgetSize, newPosition: GridPosition) => void;
+  onResizeWidget: (widgetId: string, newSize: WidgetSize, newPosition: GridPosition, customCols?: number, customRows?: number) => void;
 }
 
 export const WidgetGrid = ({
@@ -136,6 +136,8 @@ export const WidgetGrid = ({
           <DragPreviewOverlay
             hoveredCell={hoveredCell}
             widgetSize={activeWidget.size}
+            customCols={activeWidget.customCols}
+            customRows={activeWidget.customRows}
             occupiedCells={occupiedCellsForPreview}
             gridCols={gridCols}
             gridRows={gridRows}
@@ -150,12 +152,14 @@ export const WidgetGrid = ({
               id={widget.id}
               isEditMode={isEditMode}
               size={widget.size}
+              customCols={widget.customCols}
+              customRows={widget.customRows}
               position={widget.position}
               occupiedCells={occupiedCellsForPreview}
               gridCols={gridCols}
               gridRows={gridRows}
               gridRef={gridRef as React.RefObject<HTMLDivElement>}
-              onResize={(newSize, newPosition) => onResizeWidget(widget.id, newSize, newPosition)}
+              onResize={(newSize, newPosition, cols, rows) => onResizeWidget(widget.id, newSize, newPosition, cols, rows)}
             >
               <WidgetRenderer widget={widget} />
             </DraggableGridWidget>
