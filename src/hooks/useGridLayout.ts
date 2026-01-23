@@ -362,7 +362,7 @@ export const useGridLayout = (density: DensityPreset) => {
   const resizeWidget = useCallback((widgetId: string, newSize: WidgetSize) => {
     setWidgets((items) => {
       const newItems = items.map((item) =>
-        item.id === widgetId ? { ...item, size: newSize, position: undefined } : item
+        item.id === widgetId ? { ...item, size: newSize } : item
       );
       saveLayout(newItems);
       return newItems;
