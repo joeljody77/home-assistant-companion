@@ -24,6 +24,7 @@ interface WidgetGridProps {
   gridRows: number;
   onMoveWidget: (widgetId: string, targetPosition: GridPosition) => void;
   onResizeWidget: (widgetId: string, newSize: WidgetSize, newPosition: GridPosition, customCols?: number, customRows?: number) => void;
+  onDeleteWidget: (widgetId: string) => void;
 }
 
 export const WidgetGrid = ({
@@ -33,6 +34,7 @@ export const WidgetGrid = ({
   gridRows,
   onMoveWidget,
   onResizeWidget,
+  onDeleteWidget,
 }: WidgetGridProps) => {
   const [activeWidget, setActiveWidget] = useState<WidgetConfig | null>(null);
   const [hoveredCell, setHoveredCell] = useState<GridPosition | null>(null);
@@ -160,6 +162,7 @@ export const WidgetGrid = ({
               gridRows={gridRows}
               gridRef={gridRef as React.RefObject<HTMLDivElement>}
               onResize={(newSize, newPosition, cols, rows) => onResizeWidget(widget.id, newSize, newPosition, cols, rows)}
+              onDelete={() => onDeleteWidget(widget.id)}
             >
               <WidgetRenderer widget={widget} />
             </DraggableGridWidget>

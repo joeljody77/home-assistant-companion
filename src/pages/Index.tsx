@@ -25,6 +25,7 @@ const Index = () => {
     resetLayout, 
     resizeWidget,
     moveWidget,
+    deleteWidget,
     currentPage,
     setCurrentPage,
     totalPages,
@@ -99,6 +100,7 @@ const Index = () => {
             gridRows={gridRows}
             onMoveWidget={moveWidget}
             onResizeWidget={resizeWidget}
+            onDeleteWidget={deleteWidget}
           />
         </div>
 
