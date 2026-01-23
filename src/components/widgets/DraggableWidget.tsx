@@ -51,7 +51,7 @@ export const DraggableWidget = ({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "relative",
+        "relative h-full",
         getGridClasses(size),
         isDragging && "z-50 opacity-80 scale-105",
         isEditMode && "ring-2 ring-primary/30 ring-offset-2 ring-offset-background rounded-2xl"
