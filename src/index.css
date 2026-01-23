@@ -70,7 +70,7 @@
 
 @layer utilities {
   .widget-card {
-    @apply bg-card rounded-2xl p-4 transition-all duration-300 ease-out;
+    @apply bg-card rounded-2xl p-4 transition-all duration-300 ease-out overflow-hidden;
     box-shadow: var(--widget-shadow);
   }
 
