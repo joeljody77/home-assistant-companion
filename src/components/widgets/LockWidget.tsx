@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Lock, Unlock, DoorOpen, Shield } from "lucide-react";
+import { Lock, Unlock, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWidgetSize } from "@/contexts/WidgetSizeContext";
 
@@ -15,7 +15,13 @@ export const LockWidget = ({
   initialState = true,
 }: LockWidgetProps) => {
   const [isLocked, setIsLocked] = useState(initialState);
-  const { isCompact, isWide, isTall, isLarge } = useWidgetSize();
+  const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
+
+  // Calculate dynamic sizes based on actual dimensions
+  const iconSize = Math.min(cols, rows) >= 3 ? "w-20 h-20" : isLarge ? "w-14 h-14" : isTall ? "w-10 h-10" : "w-5 h-5";
+  const iconPadding = Math.min(cols, rows) >= 3 ? "p-8" : isLarge ? "p-6" : isTall ? "p-4" : "p-2.5";
+  const titleSize = cols >= 3 || rows >= 3 ? "text-2xl" : isLarge ? "text-lg" : "text-sm";
+  const subtitleSize = cols >= 3 || rows >= 3 ? "text-lg" : isLarge ? "text-sm" : "text-xs";
 
   // Compact 1x1 layout
   if (isCompact) {
@@ -60,7 +66,7 @@ export const LockWidget = ({
     );
   }
 
-  // Wide 2x1 layout
+  // Wide layout (2+ cols, 1 row)
   if (isWide && !isTall) {
     return (
       <button
@@ -72,7 +78,7 @@ export const LockWidget = ({
       >
         <div
           className={cn(
-            "p-3 rounded-xl transition-colors duration-300",
+            "p-3 rounded-xl transition-colors duration-300 shrink-0",
             isLocked ? "bg-success/20" : "bg-warning/20"
           )}
         >
@@ -83,14 +89,14 @@ export const LockWidget = ({
           )}
         </div>
 
-        <div className="flex-1">
-          <h3 className="font-medium text-foreground">{name}</h3>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-medium text-foreground truncate">{name}</h3>
           {room && (
-            <p className="text-xs text-muted-foreground">{room}</p>
+            <p className="text-xs text-muted-foreground truncate">{room}</p>
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           <p
             className={cn(
               "text-sm font-medium",
@@ -99,41 +105,44 @@ export const LockWidget = ({
           >
             {isLocked ? "Locked" : "Unlocked"}
           </p>
-          <DoorOpen className="w-5 h-5 text-muted-foreground" />
         </div>
       </button>
     );
   }
 
-  // Tall 1x2 or Large 2x2 layout
+  // Tall or Large layout - scales with widget size
   return (
     <button
       onClick={() => setIsLocked(!isLocked)}
       className={cn(
-        "widget-card text-left w-full h-full flex flex-col items-center justify-center",
+        "widget-card text-left w-full h-full flex flex-col items-center justify-center gap-4",
         !isLocked && "ring-1 ring-warning/50"
       )}
     >
       <div
         className={cn(
-          "p-6 rounded-2xl transition-colors duration-300",
+          "rounded-2xl transition-colors duration-300",
+          iconPadding,
           isLocked ? "bg-success/20" : "bg-warning/20"
         )}
       >
         {isLocked ? (
-          <Lock className={cn("text-success", isLarge ? "w-14 h-14" : "w-10 h-10")} />
+          <Lock className={cn("text-success", iconSize)} />
         ) : (
-          <Unlock className={cn("text-warning", isLarge ? "w-14 h-14" : "w-10 h-10")} />
+          <Unlock className={cn("text-warning", iconSize)} />
         )}
       </div>
 
-      <h3 className={cn("font-medium text-foreground mt-4", isLarge && "text-lg")}>{name}</h3>
-      {room && (
-        <p className="text-sm text-muted-foreground">{room}</p>
-      )}
+      <div className="text-center">
+        <h3 className={cn("font-medium text-foreground", titleSize)}>{name}</h3>
+        {room && (
+          <p className={cn("text-muted-foreground mt-1", subtitleSize)}>{room}</p>
+        )}
+      </div>
       
       <div className={cn(
-        "mt-4 px-6 py-2 rounded-full text-sm font-medium transition-colors",
+        "px-6 py-2 rounded-full font-medium transition-colors",
+        cols >= 3 || rows >= 3 ? "text-lg px-8 py-3" : "text-sm",
         isLocked 
           ? "bg-success/20 text-success" 
           : "bg-warning/20 text-warning"
@@ -141,10 +150,13 @@ export const LockWidget = ({
         {isLocked ? "Locked" : "Unlocked"}
       </div>
 
-      {isLarge && (
-        <div className="flex items-center gap-2 mt-4 text-muted-foreground">
-          <Shield className="w-4 h-4" />
-          <span className="text-xs">Tap to {isLocked ? "unlock" : "lock"}</span>
+      {(isLarge || cols >= 2 || rows >= 2) && (
+        <div className={cn(
+          "flex items-center gap-2 text-muted-foreground",
+          cols >= 3 || rows >= 3 ? "text-base" : "text-xs"
+        )}>
+          <Shield className={cols >= 3 || rows >= 3 ? "w-5 h-5" : "w-4 h-4"} />
+          <span>Tap to {isLocked ? "unlock" : "lock"}</span>
         </div>
       )}
     </button>

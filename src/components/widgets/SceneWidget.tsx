@@ -34,7 +34,14 @@ export const SceneWidget = ({
 }: SceneWidgetProps) => {
   const [isActive, setIsActive] = useState(false);
   const Icon = sceneIcons[type];
-  const { isCompact, isWide, isTall, isLarge } = useWidgetSize();
+  const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
+
+  // Calculate dynamic sizes
+  const minDim = Math.min(cols, rows);
+  const iconSize = minDim >= 3 ? "w-16 h-16" : isLarge ? "w-12 h-12" : isTall ? "w-10 h-10" : isWide ? "w-7 h-7" : "w-5 h-5";
+  const iconPadding = minDim >= 3 ? "p-8" : isLarge ? "p-6" : isTall ? "p-5" : isWide ? "p-4" : "p-3";
+  const titleSize = minDim >= 3 ? "text-2xl" : isLarge ? "text-lg" : "text-sm";
+  const subtitleSize = minDim >= 3 ? "text-lg" : isLarge ? "text-sm" : "text-xs";
 
   // Compact 1x1 layout
   if (isCompact) {
@@ -71,7 +78,7 @@ export const SceneWidget = ({
     );
   }
 
-  // Wide 2x1 layout
+  // Wide layout (not tall)
   if (isWide && !isTall) {
     return (
       <button
@@ -83,28 +90,31 @@ export const SceneWidget = ({
       >
         <div
           className={cn(
-            "p-4 rounded-xl bg-gradient-to-br transition-all duration-300",
+            "rounded-xl bg-gradient-to-br transition-all duration-300 shrink-0",
+            iconPadding,
             sceneGradients[type],
             isActive && "scale-110"
           )}
         >
           <Icon
             className={cn(
-              "w-7 h-7 transition-colors duration-300",
+              "transition-colors duration-300",
+              iconSize,
               isActive ? "text-primary" : "text-foreground/70"
             )}
           />
         </div>
 
-        <div className="flex-1">
-          <h3 className="font-medium text-foreground">{name}</h3>
-          <p className="text-sm text-muted-foreground">
+        <div className="flex-1 min-w-0">
+          <h3 className={cn("font-medium text-foreground", titleSize)}>{name}</h3>
+          <p className={cn("text-muted-foreground", subtitleSize)}>
             {deviceCount} devices
           </p>
         </div>
 
         <div className={cn(
-          "px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
+          "px-3 py-1.5 rounded-full font-medium transition-colors shrink-0",
+          minDim >= 3 ? "text-base px-5 py-2" : "text-xs",
           isActive 
             ? "bg-primary text-primary-foreground" 
             : "bg-secondary text-muted-foreground"
@@ -115,18 +125,19 @@ export const SceneWidget = ({
     );
   }
 
-  // Tall 1x2 or Large 2x2 layout
+  // Tall or Large layout - centered
   return (
     <button
       onClick={() => setIsActive(!isActive)}
       className={cn(
-        "widget-card text-left w-full h-full flex flex-col items-center justify-center transition-all duration-300",
+        "widget-card text-left w-full h-full flex flex-col items-center justify-center gap-4 transition-all duration-300",
         isActive && "widget-card-active ring-1 ring-primary/50"
       )}
     >
       <div
         className={cn(
-          "p-6 rounded-2xl bg-gradient-to-br transition-all duration-300",
+          "rounded-2xl bg-gradient-to-br transition-all duration-300",
+          iconPadding,
           sceneGradients[type],
           isActive && "scale-110"
         )}
@@ -134,19 +145,22 @@ export const SceneWidget = ({
         <Icon
           className={cn(
             "transition-colors duration-300",
-            isActive ? "text-primary" : "text-foreground/70",
-            isLarge ? "w-12 h-12" : "w-10 h-10"
+            iconSize,
+            isActive ? "text-primary" : "text-foreground/70"
           )}
         />
       </div>
 
-      <h3 className={cn("font-medium text-foreground mt-4", isLarge && "text-lg")}>{name}</h3>
-      <p className="text-sm text-muted-foreground">
-        {deviceCount} devices
-      </p>
+      <div className="text-center">
+        <h3 className={cn("font-medium text-foreground", titleSize)}>{name}</h3>
+        <p className={cn("text-muted-foreground mt-1", subtitleSize)}>
+          {deviceCount} devices
+        </p>
+      </div>
 
       <div className={cn(
-        "mt-4 px-4 py-2 rounded-full text-sm font-medium transition-colors",
+        "px-4 py-2 rounded-full font-medium transition-colors",
+        minDim >= 3 ? "text-lg px-6 py-3" : "text-sm",
         isActive 
           ? "bg-primary text-primary-foreground" 
           : "bg-secondary text-muted-foreground"

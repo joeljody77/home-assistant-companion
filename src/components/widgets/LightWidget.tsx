@@ -19,9 +19,16 @@ export const LightWidget = ({
 }: LightWidgetProps) => {
   const [isOn, setIsOn] = useState(initialState);
   const [brightness, setBrightness] = useState(initialBrightness);
-  const { isCompact, isWide, isTall, isLarge } = useWidgetSize();
+  const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
 
   const toggleLight = () => setIsOn(!isOn);
+
+  // Calculate dynamic sizes
+  const minDim = Math.min(cols, rows);
+  const maxDim = Math.max(cols, rows);
+  const iconSize = minDim >= 3 ? "w-12 h-12" : isLarge ? "w-8 h-8" : isWide || isTall ? "w-6 h-6" : "w-5 h-5";
+  const iconPadding = minDim >= 3 ? "p-5" : isLarge ? "p-4" : "p-2.5";
+  const titleSize = minDim >= 3 ? "text-2xl" : isLarge ? "text-lg" : "text-sm";
 
   // Compact 1x1 layout
   if (isCompact) {
@@ -67,7 +74,7 @@ export const LightWidget = ({
     );
   }
 
-  // Wide 2x1 or Large 2x2 layout with slider
+  // Wide or Large layout with slider - scales dynamically
   return (
     <div
       className={cn(
@@ -79,14 +86,15 @@ export const LightWidget = ({
       <div className="flex items-start justify-between mb-4">
         <div
           className={cn(
-            "p-3 rounded-xl transition-colors duration-300",
+            "rounded-xl transition-colors duration-300",
+            iconPadding,
             isOn ? "bg-primary/20" : "bg-secondary"
           )}
         >
           {isOn ? (
-            <Lightbulb className={cn("text-primary", isLarge ? "w-8 h-8" : "w-6 h-6")} />
+            <Lightbulb className={cn("text-primary", iconSize)} />
           ) : (
-            <LightbulbOff className={cn("text-muted-foreground", isLarge ? "w-8 h-8" : "w-6 h-6")} />
+            <LightbulbOff className={cn("text-muted-foreground", iconSize)} />
           )}
         </div>
         <div
@@ -99,14 +107,14 @@ export const LightWidget = ({
 
       <div className="flex-1 flex flex-col">
         <div className="space-y-1">
-          <h3 className={cn("font-medium text-foreground", isLarge && "text-lg")}>{name}</h3>
+          <h3 className={cn("font-medium text-foreground", titleSize)}>{name}</h3>
           {room && (
-            <p className="text-sm text-muted-foreground">{room}</p>
+            <p className={cn("text-muted-foreground", minDim >= 3 ? "text-lg" : "text-sm")}>{room}</p>
           )}
         </div>
 
-        <div className={cn("mt-auto pt-4", isTall && "pt-6")} onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
+        <div className={cn("mt-auto", minDim >= 3 ? "pt-8" : isTall ? "pt-6" : "pt-4")} onClick={(e) => e.stopPropagation()}>
+          <div className={cn("flex items-center justify-between text-muted-foreground mb-2", minDim >= 3 ? "text-lg" : "text-xs")}>
             <span>Brightness</span>
             <span>{isOn ? `${brightness}%` : "Off"}</span>
           </div>
@@ -121,8 +129,8 @@ export const LightWidget = ({
             disabled={!isOn}
             className="w-full"
           />
-          {isLarge && (
-            <div className="grid grid-cols-4 gap-2 mt-4">
+          {(isLarge || minDim >= 2) && (
+            <div className={cn("grid gap-2 mt-4", cols >= 3 ? "grid-cols-5" : "grid-cols-4")}>
               {[25, 50, 75, 100].map((preset) => (
                 <button
                   key={preset}
@@ -132,7 +140,8 @@ export const LightWidget = ({
                     if (!isOn) setIsOn(true);
                   }}
                   className={cn(
-                    "py-2 rounded-lg text-xs font-medium transition-colors",
+                    "py-2 rounded-lg font-medium transition-colors",
+                    minDim >= 3 ? "text-base py-3" : "text-xs",
                     brightness === preset && isOn
                       ? "bg-primary text-primary-foreground"
                       : "bg-secondary text-muted-foreground hover:bg-muted"
