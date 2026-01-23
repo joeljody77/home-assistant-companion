@@ -1,0 +1,347 @@
+import { useState, useCallback, useMemo } from "react";
+import { DensityPreset, getWidgetCellCount } from "./useDensityConfig";
+
+export type WidgetSize = "1x1" | "2x1" | "1x2" | "2x2";
+
+export interface GridPosition {
+  col: number;
+  row: number;
+}
+
+export interface WidgetConfig {
+  id: string;
+  type: string;
+  props: Record<string, unknown>;
+  size: WidgetSize;
+  position?: GridPosition; // Optional - will be auto-assigned if not set
+}
+
+const defaultWidgets: WidgetConfig[] = [
+  { id: "weather-1", type: "weather", props: { location: "San Francisco", temperature: 18, condition: "cloudy", high: 22, low: 14, humidity: 65 }, size: "2x1" },
+  { id: "climate-1", type: "climate", props: { name: "Thermostat", currentTemp: 21, targetTemp: 22, humidity: 45, mode: "auto" }, size: "2x1" },
+  { id: "light-1", type: "light", props: { name: "Main Light", room: "Living Room", initialState: true, initialBrightness: 80 }, size: "1x1" },
+  { id: "light-2", type: "light", props: { name: "Desk Lamp", room: "Office", initialState: false, initialBrightness: 60 }, size: "1x1" },
+  { id: "light-3", type: "light", props: { name: "Ceiling Light", room: "Bedroom", initialState: true, initialBrightness: 40 }, size: "1x1" },
+  { id: "light-4", type: "light", props: { name: "Kitchen Lights", room: "Kitchen", initialState: true, initialBrightness: 100 }, size: "1x1" },
+  { id: "scene-1", type: "scene", props: { name: "Good Night", type: "night", deviceCount: 8 }, size: "1x1" },
+  { id: "scene-2", type: "scene", props: { name: "Movie Time", type: "movie", deviceCount: 5 }, size: "1x1" },
+  { id: "scene-3", type: "scene", props: { name: "Morning", type: "morning", deviceCount: 6 }, size: "1x1" },
+  { id: "scene-4", type: "scene", props: { name: "Relax", type: "relax", deviceCount: 4 }, size: "1x1" },
+  { id: "camera-1", type: "camera", props: { name: "Front Door", room: "Entrance", isOnline: true }, size: "2x2" },
+  { id: "sensor-1", type: "sensor", props: { name: "Temperature", type: "temperature", value: 21.5, unit: "°C", room: "Living Room" }, size: "1x1" },
+  { id: "sensor-2", type: "sensor", props: { name: "Humidity", type: "humidity", value: 45, unit: "%", room: "Living Room" }, size: "1x1" },
+  { id: "sensor-3", type: "sensor", props: { name: "Power Usage", type: "power", value: 2.4, unit: "kW" }, size: "1x1" },
+  { id: "sensor-4", type: "sensor", props: { name: "Light Level", type: "light", value: 340, unit: "lux", room: "Office" }, size: "1x1" },
+  { id: "media-1", type: "media", props: { name: "Living Room Speaker", artist: "Daft Punk", track: "Get Lucky" }, size: "2x1" },
+  { id: "switch-1", type: "switch", props: { name: "TV", type: "tv", room: "Living Room", initialState: true }, size: "1x1" },
+  { id: "switch-2", type: "switch", props: { name: "Fan", type: "fan", room: "Bedroom", initialState: false }, size: "1x1" },
+  { id: "lock-1", type: "lock", props: { name: "Front Door", room: "Entrance", initialState: true }, size: "1x1" },
+  { id: "lock-2", type: "lock", props: { name: "Back Door", room: "Garden", initialState: true }, size: "1x1" },
+  { id: "switch-3", type: "switch", props: { name: "Coffee Machine", type: "plug", room: "Kitchen", initialState: false }, size: "1x1" },
+  { id: "switch-4", type: "switch", props: { name: "Speaker", type: "speaker", room: "Office", initialState: true }, size: "1x1" },
+];
+
+const STORAGE_KEY = "dashboard-grid-layout-v3";
+
+const loadLayout = (): WidgetConfig[] => {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch (e) {
+    console.error("Failed to load layout:", e);
+  }
+  return defaultWidgets;
+};
+
+const saveLayout = (widgets: WidgetConfig[]) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(widgets));
+  } catch (e) {
+    console.error("Failed to save layout:", e);
+  }
+};
+
+// Get widget dimensions from size
+export const getWidgetDimensions = (size: WidgetSize): { cols: number; rows: number } => {
+  switch (size) {
+    case "2x1":
+      return { cols: 2, rows: 1 };
+    case "1x2":
+      return { cols: 1, rows: 2 };
+    case "2x2":
+      return { cols: 2, rows: 2 };
+    default:
+      return { cols: 1, rows: 1 };
+  }
+};
+
+// Check if a widget can be placed at a position without overlapping
+export const canPlaceWidget = (
+  position: GridPosition,
+  size: WidgetSize,
+  occupiedCells: Set<string>,
+  gridCols: number,
+  gridRows: number,
+  excludeWidgetId?: string
+): boolean => {
+  const { cols, rows } = getWidgetDimensions(size);
+  
+  // Check bounds
+  if (position.col < 0 || position.row < 0) return false;
+  if (position.col + cols > gridCols) return false;
+  if (position.row + rows > gridRows) return false;
+  
+  // Check for overlaps
+  for (let r = position.row; r < position.row + rows; r++) {
+    for (let c = position.col; c < position.col + cols; c++) {
+      const cellKey = `${c},${r}`;
+      if (occupiedCells.has(cellKey)) {
+        return false;
+      }
+    }
+  }
+  
+  return true;
+};
+
+// Get all cells occupied by a widget
+export const getOccupiedCells = (position: GridPosition, size: WidgetSize): string[] => {
+  const { cols, rows } = getWidgetDimensions(size);
+  const cells: string[] = [];
+  
+  for (let r = position.row; r < position.row + rows; r++) {
+    for (let c = position.col; c < position.col + cols; c++) {
+      cells.push(`${c},${r}`);
+    }
+  }
+  
+  return cells;
+};
+
+// Auto-place widgets on a grid, returns widgets with positions assigned for a specific page
+export const autoPlaceWidgets = (
+  widgets: WidgetConfig[],
+  gridCols: number,
+  gridRows: number
+): { pages: WidgetConfig[][]; totalPages: number } => {
+  const pages: WidgetConfig[][] = [];
+  let currentPage: WidgetConfig[] = [];
+  let occupiedCells = new Set<string>();
+  
+  for (const widget of widgets) {
+    const { cols, rows } = getWidgetDimensions(widget.size);
+    let placed = false;
+    
+    // Try to find a position on the current page
+    for (let row = 0; row <= gridRows - rows && !placed; row++) {
+      for (let col = 0; col <= gridCols - cols && !placed; col++) {
+        const position = { col, row };
+        if (canPlaceWidget(position, widget.size, occupiedCells, gridCols, gridRows)) {
+          const placedWidget = { ...widget, position };
+          currentPage.push(placedWidget);
+          getOccupiedCells(position, widget.size).forEach(cell => occupiedCells.add(cell));
+          placed = true;
+        }
+      }
+    }
+    
+    // If couldn't place on current page, start a new page
+    if (!placed) {
+      if (currentPage.length > 0) {
+        pages.push(currentPage);
+      }
+      currentPage = [];
+      occupiedCells = new Set<string>();
+      
+      // Place at the beginning of the new page
+      const position = { col: 0, row: 0 };
+      const placedWidget = { ...widget, position };
+      currentPage.push(placedWidget);
+      getOccupiedCells(position, widget.size).forEach(cell => occupiedCells.add(cell));
+    }
+  }
+  
+  if (currentPage.length > 0) {
+    pages.push(currentPage);
+  }
+  
+  return {
+    pages,
+    totalPages: Math.max(1, pages.length),
+  };
+};
+
+// Calculate which cells are occupied by widgets on a page (excluding a specific widget)
+export const getPageOccupiedCells = (
+  widgets: WidgetConfig[],
+  excludeWidgetId?: string
+): Set<string> => {
+  const occupied = new Set<string>();
+  
+  for (const widget of widgets) {
+    if (widget.id === excludeWidgetId) continue;
+    if (!widget.position) continue;
+    
+    getOccupiedCells(widget.position, widget.size).forEach(cell => occupied.add(cell));
+  }
+  
+  return occupied;
+};
+
+export const useGridLayout = (density: DensityPreset) => {
+  const [widgets, setWidgets] = useState<WidgetConfig[]>(loadLayout);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [currentPage, setCurrentPage] = useState(0);
+
+  // Calculate pages based on current density
+  const { pages, totalPages } = useMemo(() => {
+    return autoPlaceWidgets(widgets, density.columns, density.rows);
+  }, [widgets, density.columns, density.rows]);
+
+  // Get widgets for current page with positions
+  const pageWidgets = useMemo(() => {
+    return pages[currentPage] || [];
+  }, [pages, currentPage]);
+
+  // Get occupied cells for current page
+  const occupiedCells = useMemo(() => {
+    return getPageOccupiedCells(pageWidgets);
+  }, [pageWidgets]);
+
+  // Validate current page
+  const validatedPage = useMemo(() => {
+    const maxPage = Math.max(0, totalPages - 1);
+    return currentPage > maxPage ? maxPage : currentPage;
+  }, [totalPages, currentPage]);
+
+  // Reset page when it becomes invalid
+  useMemo(() => {
+    if (validatedPage !== currentPage) {
+      setCurrentPage(validatedPage);
+    }
+  }, [validatedPage, currentPage]);
+
+  // Move widget to a new position (swap if target is occupied)
+  const moveWidget = useCallback((
+    widgetId: string,
+    targetPosition: GridPosition
+  ) => {
+    setWidgets((currentWidgets) => {
+      const widgetIndex = currentWidgets.findIndex(w => w.id === widgetId);
+      if (widgetIndex === -1) return currentWidgets;
+      
+      const widget = currentWidgets[widgetIndex];
+      const { cols, rows } = getWidgetDimensions(widget.size);
+      
+      // Check bounds
+      if (targetPosition.col < 0 || targetPosition.row < 0) return currentWidgets;
+      if (targetPosition.col + cols > density.columns) return currentWidgets;
+      if (targetPosition.row + rows > density.rows) return currentWidgets;
+      
+      // Get the target cells
+      const targetCells = getOccupiedCells(targetPosition, widget.size);
+      
+      // Find any widget that occupies these target cells
+      const currentPageWidgets = pages[currentPage] || [];
+      const overlappingWidget = currentPageWidgets.find(w => {
+        if (w.id === widgetId || !w.position) return false;
+        const wCells = getOccupiedCells(w.position, w.size);
+        return wCells.some(cell => targetCells.includes(cell));
+      });
+      
+      if (overlappingWidget) {
+        // Swap positions between the two widgets
+        const newWidgets = currentWidgets.map(w => {
+          if (w.id === widgetId) {
+            return { ...w, position: targetPosition };
+          }
+          if (w.id === overlappingWidget.id && widget.position) {
+            return { ...w, position: widget.position };
+          }
+          return w;
+        });
+        
+        // Re-order array to reflect new positions for proper auto-placement
+        const reorderedWidgets = reorderWidgetsByPosition(newWidgets, density.columns, density.rows);
+        saveLayout(reorderedWidgets);
+        return reorderedWidgets;
+      } else {
+        // Just move the widget
+        const newWidgets = currentWidgets.map(w => 
+          w.id === widgetId ? { ...w, position: targetPosition } : w
+        );
+        
+        const reorderedWidgets = reorderWidgetsByPosition(newWidgets, density.columns, density.rows);
+        saveLayout(reorderedWidgets);
+        return reorderedWidgets;
+      }
+    });
+  }, [density.columns, density.rows, pages, currentPage]);
+
+  const resizeWidget = useCallback((widgetId: string, newSize: WidgetSize) => {
+    setWidgets((items) => {
+      const newItems = items.map((item) =>
+        item.id === widgetId ? { ...item, size: newSize, position: undefined } : item
+      );
+      saveLayout(newItems);
+      return newItems;
+    });
+  }, []);
+
+  const toggleEditMode = useCallback(() => {
+    setIsEditMode((prev) => !prev);
+  }, []);
+
+  const resetLayout = useCallback(() => {
+    setWidgets(defaultWidgets);
+    saveLayout(defaultWidgets);
+  }, []);
+
+  return {
+    widgets,
+    pageWidgets,
+    isEditMode,
+    toggleEditMode,
+    resetLayout,
+    resizeWidget,
+    moveWidget,
+    currentPage,
+    setCurrentPage,
+    totalPages,
+    occupiedCells,
+    gridCols: density.columns,
+    gridRows: density.rows,
+  };
+};
+
+// Helper to reorder widgets array based on their positions (top-left to bottom-right)
+const reorderWidgetsByPosition = (
+  widgets: WidgetConfig[],
+  gridCols: number,
+  gridRows: number
+): WidgetConfig[] => {
+  return [...widgets].sort((a, b) => {
+    if (!a.position && !b.position) return 0;
+    if (!a.position) return 1;
+    if (!b.position) return -1;
+    
+    const aIndex = a.position.row * gridCols + a.position.col;
+    const bIndex = b.position.row * gridCols + b.position.col;
+    return aIndex - bIndex;
+  });
+};
+
+export const getGridClasses = (size: WidgetSize): string => {
+  switch (size) {
+    case "2x1":
+      return "col-span-2";
+    case "1x2":
+      return "row-span-2";
+    case "2x2":
+      return "col-span-2 row-span-2";
+    default:
+      return "";
+  }
+};
