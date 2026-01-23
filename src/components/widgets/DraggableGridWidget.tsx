@@ -1,6 +1,5 @@
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { WidgetSize, getWidgetDimensions, GridPosition } from "@/hooks/useGridLayout";
 import { useWidgetResize } from "@/hooks/useWidgetResize";
@@ -92,25 +91,17 @@ export const DraggableGridWidget = ({
         "relative h-full transition-all",
         isDragging && "opacity-50 scale-95",
         resizeState.isResizing && "ring-2 ring-primary shadow-lg",
-        isEditMode && !resizeState.isResizing && "ring-2 ring-primary/30 ring-offset-2 ring-offset-background rounded-2xl"
+        isEditMode && !resizeState.isResizing && "ring-2 ring-primary/30 ring-offset-2 ring-offset-background rounded-2xl",
+        isEditMode && "cursor-grab active:cursor-grabbing"
       )}
+      {...(isEditMode ? { ...attributes, ...listeners } : {})}
     >
       {isEditMode && (
-        <>
-          {/* Drag handle */}
-          <button
-            {...attributes}
-            {...listeners}
-            className="absolute -top-2 -right-2 z-30 p-1.5 rounded-full bg-primary text-primary-foreground shadow-lg cursor-grab active:cursor-grabbing hover:scale-110 transition-transform"
-          >
-            <GripVertical className="w-4 h-4" />
-          </button>
-
-          {/* Resize handles on edges and corners */}
-          <ResizeHandles onResizeStart={handleResizeStart} />
-        </>
+        <ResizeHandles onResizeStart={handleResizeStart} />
       )}
-      {children}
+      <div className={cn(isEditMode && "pointer-events-none")}>
+        {children}
+      </div>
     </div>
   );
 };
