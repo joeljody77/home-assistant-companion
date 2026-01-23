@@ -1,15 +1,37 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical } from "lucide-react";
+import { GripVertical, Maximize2, Minimize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { WidgetSize, getGridClasses } from "@/hooks/useWidgetLayout";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface DraggableWidgetProps {
   id: string;
   children: React.ReactNode;
   isEditMode?: boolean;
+  size: WidgetSize;
+  onResize?: (size: WidgetSize) => void;
 }
 
-export const DraggableWidget = ({ id, children, isEditMode = false }: DraggableWidgetProps) => {
+const sizeOptions: { value: WidgetSize; label: string }[] = [
+  { value: "1x1", label: "Small (1×1)" },
+  { value: "2x1", label: "Wide (2×1)" },
+  { value: "1x2", label: "Tall (1×2)" },
+  { value: "2x2", label: "Large (2×2)" },
+];
+
+export const DraggableWidget = ({ 
+  id, 
+  children, 
+  isEditMode = false, 
+  size,
+  onResize 
+}: DraggableWidgetProps) => {
   const {
     attributes,
     listeners,
@@ -30,18 +52,49 @@ export const DraggableWidget = ({ id, children, isEditMode = false }: DraggableW
       style={style}
       className={cn(
         "relative",
+        getGridClasses(size),
         isDragging && "z-50 opacity-80 scale-105",
         isEditMode && "ring-2 ring-primary/30 ring-offset-2 ring-offset-background rounded-2xl"
       )}
     >
       {isEditMode && (
-        <button
-          {...attributes}
-          {...listeners}
-          className="absolute -top-2 -right-2 z-10 p-1.5 rounded-full bg-primary text-primary-foreground shadow-lg cursor-grab active:cursor-grabbing hover:scale-110 transition-transform"
-        >
-          <GripVertical className="w-4 h-4" />
-        </button>
+        <>
+          {/* Drag handle */}
+          <button
+            {...attributes}
+            {...listeners}
+            className="absolute -top-2 -right-2 z-10 p-1.5 rounded-full bg-primary text-primary-foreground shadow-lg cursor-grab active:cursor-grabbing hover:scale-110 transition-transform"
+          >
+            <GripVertical className="w-4 h-4" />
+          </button>
+
+          {/* Resize dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="absolute -top-2 -left-2 z-10 p-1.5 rounded-full bg-accent text-accent-foreground shadow-lg hover:scale-110 transition-transform">
+                {size === "1x1" ? (
+                  <Maximize2 className="w-4 h-4" />
+                ) : (
+                  <Minimize2 className="w-4 h-4" />
+                )}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-36">
+              {sizeOptions.map((option) => (
+                <DropdownMenuItem
+                  key={option.value}
+                  onClick={() => onResize?.(option.value)}
+                  className={cn(
+                    "cursor-pointer",
+                    size === option.value && "bg-primary/10 text-primary"
+                  )}
+                >
+                  {option.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </>
       )}
       {children}
     </div>

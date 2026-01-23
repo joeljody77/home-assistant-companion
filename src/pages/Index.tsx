@@ -27,7 +27,7 @@ const rooms = ["All Rooms", "Living Room", "Bedroom", "Kitchen", "Bathroom", "Of
 const Index = () => {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [activeRoom, setActiveRoom] = useState("All Rooms");
-  const { widgets, isEditMode, handleDragEnd, toggleEditMode, resetLayout } = useWidgetLayout();
+  const { widgets, isEditMode, handleDragEnd, toggleEditMode, resetLayout, resizeWidget } = useWidgetLayout();
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -102,9 +102,15 @@ const Index = () => {
           onDragEnd={onDragEnd}
         >
           <SortableContext items={widgets.map(w => w.id)} strategy={rectSortingStrategy}>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 auto-rows-min">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 auto-rows-[minmax(140px,auto)]">
               {widgets.map((widget) => (
-                <DraggableWidget key={widget.id} id={widget.id} isEditMode={isEditMode}>
+                <DraggableWidget 
+                  key={widget.id} 
+                  id={widget.id} 
+                  isEditMode={isEditMode}
+                  size={widget.size}
+                  onResize={(newSize) => resizeWidget(widget.id, newSize)}
+                >
                   <WidgetRenderer widget={widget} />
                 </DraggableWidget>
               ))}
