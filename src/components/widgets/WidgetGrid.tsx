@@ -23,7 +23,7 @@ interface WidgetGridProps {
   gridCols: number;
   gridRows: number;
   onMoveWidget: (widgetId: string, targetPosition: GridPosition) => void;
-  onResizeWidget: (widgetId: string, newSize: WidgetSize) => void;
+  onResizeWidget: (widgetId: string, newSize: WidgetSize, newPosition: GridPosition) => void;
 }
 
 export const WidgetGrid = ({
@@ -151,7 +151,11 @@ export const WidgetGrid = ({
               isEditMode={isEditMode}
               size={widget.size}
               position={widget.position}
-              onResize={(newSize) => onResizeWidget(widget.id, newSize)}
+              occupiedCells={occupiedCellsForPreview}
+              gridCols={gridCols}
+              gridRows={gridRows}
+              gridRef={gridRef as React.RefObject<HTMLDivElement>}
+              onResize={(newSize, newPosition) => onResizeWidget(widget.id, newSize, newPosition)}
             >
               <WidgetRenderer widget={widget} />
             </DraggableGridWidget>
