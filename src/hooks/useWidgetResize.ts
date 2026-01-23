@@ -34,7 +34,6 @@ const dimensionsToSize = (cols: number, rows: number): WidgetSize => {
 };
 
 export const useWidgetResize = ({
-  widgetId,
   position,
   size,
   occupiedCells,
@@ -44,6 +43,7 @@ export const useWidgetResize = ({
   onResize,
   isEditMode,
 }: UseWidgetResizeProps) => {
+  // ========== 1. useState ==========
   const [resizeState, setResizeState] = useState<ResizeState>({
     isResizing: false,
     edge: null,
@@ -54,24 +54,11 @@ export const useWidgetResize = ({
     previewRows: 0,
   });
 
+  // ========== 2. useRef ==========
   const initialPointerRef = useRef<{ x: number; y: number } | null>(null);
   const resizeStateRef = useRef(resizeState);
-  
-  // Keep ref in sync with state for use in event handlers
-  useEffect(() => {
-    resizeStateRef.current = resizeState;
-  }, [resizeState]);
 
-  const getCellDimensions = useCallback(() => {
-    if (!gridRef.current) return { cellWidth: 0, cellHeight: 0 };
-    const rect = gridRef.current.getBoundingClientRect();
-    return {
-      cellWidth: rect.width / gridCols,
-      cellHeight: rect.height / gridRows,
-    };
-  }, [gridRef, gridCols, gridRows]);
-
-  // Exclude the widget itself from collision checks.
+  // ========== 3. useMemo (selfCells) ==========
   const selfCells = useMemo(() => {
     const { cols, rows } = getWidgetDimensions(size);
     const set = new Set<string>();
@@ -83,61 +70,77 @@ export const useWidgetResize = ({
     return set;
   }, [position.col, position.row, size]);
 
-  const canResizeTo = useCallback((
-    newPos: GridPosition,
-    newCols: number,
-    newRows: number
-  ): boolean => {
-    // Check bounds
-    if (newPos.col < 0 || newPos.row < 0) return false;
-    if (newPos.col + newCols > gridCols) return false;
-    if (newPos.row + newRows > gridRows) return false;
-    
-    // Check for overlaps with other widgets
-    for (let r = newPos.row; r < newPos.row + newRows; r++) {
-      for (let c = newPos.col; c < newPos.col + newCols; c++) {
-        const cellKey = `${c},${r}`;
-        if (occupiedCells.has(cellKey) && !selfCells.has(cellKey)) {
-          return false;
+  // ========== 4. useCallback (getCellDimensions) ==========
+  const getCellDimensions = useCallback(() => {
+    if (!gridRef.current) return { cellWidth: 0, cellHeight: 0 };
+    const rect = gridRef.current.getBoundingClientRect();
+    return {
+      cellWidth: rect.width / gridCols,
+      cellHeight: rect.height / gridRows,
+    };
+  }, [gridRef, gridCols, gridRows]);
+
+  // ========== 5. useCallback (canResizeTo) ==========
+  const canResizeTo = useCallback(
+    (newPos: GridPosition, newCols: number, newRows: number): boolean => {
+      // Check bounds
+      if (newPos.col < 0 || newPos.row < 0) return false;
+      if (newPos.col + newCols > gridCols) return false;
+      if (newPos.row + newRows > gridRows) return false;
+
+      // Check for overlaps with other widgets (excluding self)
+      for (let r = newPos.row; r < newPos.row + newRows; r++) {
+        for (let c = newPos.col; c < newPos.col + newCols; c++) {
+          const cellKey = `${c},${r}`;
+          if (occupiedCells.has(cellKey) && !selfCells.has(cellKey)) {
+            return false;
+          }
         }
       }
-    }
-    
-    return true;
-  }, [occupiedCells, selfCells, gridCols, gridRows]);
 
-  const handleResizeStart = useCallback((
-    e: React.PointerEvent,
-    edge: ResizeEdge
-  ) => {
-    if (!isEditMode) return;
-    
-    e.preventDefault();
-    e.stopPropagation();
+      return true;
+    },
+    [occupiedCells, selfCells, gridCols, gridRows]
+  );
 
-    // Ensure subsequent pointer events keep flowing even if the pointer leaves the handle.
-    try {
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    } catch {
-      // no-op: some environments may throw if capture isn't available
-    }
-    
-    const { cols, rows } = getWidgetDimensions(size);
-    
-    initialPointerRef.current = { x: e.clientX, y: e.clientY };
-    
-    setResizeState({
-      isResizing: true,
-      edge,
-      startPosition: position,
-      startSize: size,
-      previewPosition: position,
-      previewCols: cols,
-      previewRows: rows,
-    });
-  }, [isEditMode, position, size]);
+  // ========== 6. useCallback (handleResizeStart) ==========
+  const handleResizeStart = useCallback(
+    (e: React.PointerEvent, edge: ResizeEdge) => {
+      if (!isEditMode) return;
 
-  // Handle pointer move at document level
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Capture pointer so events continue even when pointer leaves the handle
+      try {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      } catch {
+        // no-op
+      }
+
+      const { cols, rows } = getWidgetDimensions(size);
+
+      initialPointerRef.current = { x: e.clientX, y: e.clientY };
+
+      setResizeState({
+        isResizing: true,
+        edge,
+        startPosition: position,
+        startSize: size,
+        previewPosition: position,
+        previewCols: cols,
+        previewRows: rows,
+      });
+    },
+    [isEditMode, position, size]
+  );
+
+  // ========== 7. useEffect (sync resizeStateRef) ==========
+  useEffect(() => {
+    resizeStateRef.current = resizeState;
+  }, [resizeState]);
+
+  // ========== 8. useEffect (document listeners) ==========
   useEffect(() => {
     if (!resizeState.isResizing) return;
 
@@ -145,72 +148,95 @@ export const useWidgetResize = ({
       const state = resizeStateRef.current;
       if (!state.isResizing || !state.startPosition || !state.startSize) return;
       if (!initialPointerRef.current) return;
-      
+
       const { cellWidth, cellHeight } = getCellDimensions();
       if (cellWidth === 0 || cellHeight === 0) return;
-      
+
       const deltaX = e.clientX - initialPointerRef.current.x;
       const deltaY = e.clientY - initialPointerRef.current.y;
-      
+
       const deltaCols = Math.round(deltaX / cellWidth);
       const deltaRows = Math.round(deltaY / cellHeight);
-      
+
       const { cols: startCols, rows: startRows } = getWidgetDimensions(state.startSize);
       const edge = state.edge;
-      
+
       let newCol = state.startPosition.col;
       let newRow = state.startPosition.row;
       let newCols = startCols;
       let newRows = startRows;
-      
+
       // Calculate new dimensions based on which edge is being dragged
       switch (edge) {
         case "right":
           newCols = Math.max(1, Math.min(2, startCols + deltaCols));
           break;
-        case "left":
-          const leftDelta = Math.max(-state.startPosition.col, Math.min(startCols - 1, -deltaCols));
+        case "left": {
+          const leftDelta = Math.max(
+            -state.startPosition.col,
+            Math.min(startCols - 1, -deltaCols)
+          );
           newCol = state.startPosition.col - leftDelta;
           newCols = Math.max(1, Math.min(2, startCols + leftDelta));
           break;
+        }
         case "bottom":
           newRows = Math.max(1, Math.min(2, startRows + deltaRows));
           break;
-        case "top":
-          const topDelta = Math.max(-state.startPosition.row, Math.min(startRows - 1, -deltaRows));
+        case "top": {
+          const topDelta = Math.max(
+            -state.startPosition.row,
+            Math.min(startRows - 1, -deltaRows)
+          );
           newRow = state.startPosition.row - topDelta;
           newRows = Math.max(1, Math.min(2, startRows + topDelta));
           break;
+        }
         case "bottom-right":
           newCols = Math.max(1, Math.min(2, startCols + deltaCols));
           newRows = Math.max(1, Math.min(2, startRows + deltaRows));
           break;
-        case "bottom-left":
-          const blLeftDelta = Math.max(-state.startPosition.col, Math.min(startCols - 1, -deltaCols));
+        case "bottom-left": {
+          const blLeftDelta = Math.max(
+            -state.startPosition.col,
+            Math.min(startCols - 1, -deltaCols)
+          );
           newCol = state.startPosition.col - blLeftDelta;
           newCols = Math.max(1, Math.min(2, startCols + blLeftDelta));
           newRows = Math.max(1, Math.min(2, startRows + deltaRows));
           break;
-        case "top-right":
-          const trTopDelta = Math.max(-state.startPosition.row, Math.min(startRows - 1, -deltaRows));
+        }
+        case "top-right": {
+          const trTopDelta = Math.max(
+            -state.startPosition.row,
+            Math.min(startRows - 1, -deltaRows)
+          );
           newRow = state.startPosition.row - trTopDelta;
           newRows = Math.max(1, Math.min(2, startRows + trTopDelta));
           newCols = Math.max(1, Math.min(2, startCols + deltaCols));
           break;
-        case "top-left":
-          const tlLeftDelta = Math.max(-state.startPosition.col, Math.min(startCols - 1, -deltaCols));
-          const tlTopDelta = Math.max(-state.startPosition.row, Math.min(startRows - 1, -deltaRows));
+        }
+        case "top-left": {
+          const tlLeftDelta = Math.max(
+            -state.startPosition.col,
+            Math.min(startCols - 1, -deltaCols)
+          );
+          const tlTopDelta = Math.max(
+            -state.startPosition.row,
+            Math.min(startRows - 1, -deltaRows)
+          );
           newCol = state.startPosition.col - tlLeftDelta;
           newRow = state.startPosition.row - tlTopDelta;
           newCols = Math.max(1, Math.min(2, startCols + tlLeftDelta));
           newRows = Math.max(1, Math.min(2, startRows + tlTopDelta));
           break;
+        }
       }
-      
+
       // Validate the new dimensions don't overlap with other widgets
       const newPosition = { col: newCol, row: newRow };
       if (canResizeTo(newPosition, newCols, newRows)) {
-        setResizeState(prev => ({
+        setResizeState((prev) => ({
           ...prev,
           previewPosition: newPosition,
           previewCols: newCols,
@@ -221,12 +247,12 @@ export const useWidgetResize = ({
 
     const handlePointerUp = () => {
       const state = resizeStateRef.current;
-      
+
       if (state.previewPosition && state.previewCols > 0 && state.previewRows > 0) {
         const newSize = dimensionsToSize(state.previewCols, state.previewRows);
         onResize(newSize, state.previewPosition);
       }
-      
+
       setResizeState({
         isResizing: false,
         edge: null,
@@ -236,19 +262,19 @@ export const useWidgetResize = ({
         previewCols: 0,
         previewRows: 0,
       });
-      
+
       initialPointerRef.current = null;
     };
 
-    // Use capture phase to avoid other libs (e.g., DnD) stopping bubbling.
+    // Use capture phase to intercept before dnd-kit
     document.addEventListener("pointermove", handlePointerMove, { capture: true });
     document.addEventListener("pointerup", handlePointerUp, { capture: true });
     document.addEventListener("pointercancel", handlePointerUp, { capture: true });
 
     return () => {
-      document.removeEventListener("pointermove", handlePointerMove, { capture: true } as any);
-      document.removeEventListener("pointerup", handlePointerUp, { capture: true } as any);
-      document.removeEventListener("pointercancel", handlePointerUp, { capture: true } as any);
+      document.removeEventListener("pointermove", handlePointerMove, { capture: true });
+      document.removeEventListener("pointerup", handlePointerUp, { capture: true });
+      document.removeEventListener("pointercancel", handlePointerUp, { capture: true });
     };
   }, [resizeState.isResizing, getCellDimensions, canResizeTo, onResize]);
 
