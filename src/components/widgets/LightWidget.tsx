@@ -78,7 +78,7 @@ export const LightWidget = ({
   return (
     <div
       className={cn(
-        "widget-card cursor-pointer select-none h-full flex flex-col",
+        "widget-card cursor-pointer select-none h-full flex flex-col min-w-0",
         isOn && "widget-card-active"
       )}
       onClick={toggleLight}
@@ -105,15 +105,15 @@ export const LightWidget = ({
         />
       </div>
 
-      <div className="flex-1 flex flex-col">
-        <div className="space-y-1">
-          <h3 className={cn("font-medium text-foreground", titleSize)}>{name}</h3>
+      <div className="flex-1 flex flex-col min-w-0">
+        <div className="space-y-1 min-w-0">
+          <h3 className={cn("font-medium text-foreground truncate", titleSize)}>{name}</h3>
           {room && (
-            <p className={cn("text-muted-foreground", minDim >= 3 ? "text-lg" : "text-sm")}>{room}</p>
+            <p className={cn("text-muted-foreground truncate", minDim >= 3 ? "text-lg" : "text-sm")}>{room}</p>
           )}
         </div>
 
-        <div className={cn("mt-auto", minDim >= 3 ? "pt-8" : isTall ? "pt-6" : "pt-4")} onClick={(e) => e.stopPropagation()}>
+        <div className={cn("mt-auto min-w-0", minDim >= 3 ? "pt-8" : isTall ? "pt-6" : "pt-4")} onClick={(e) => e.stopPropagation()}>
           <div className={cn("flex items-center justify-between text-muted-foreground mb-2", minDim >= 3 ? "text-lg" : "text-xs")}>
             <span>Brightness</span>
             <span>{isOn ? `${brightness}%` : "Off"}</span>
