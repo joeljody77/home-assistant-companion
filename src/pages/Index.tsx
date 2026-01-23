@@ -1,24 +1,9 @@
-import { useState, useMemo } from "react";
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  sortableKeyboardCoordinates,
-  rectSortingStrategy,
-} from "@dnd-kit/sortable";
+import { useState } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { RoomTabs } from "@/components/layout/RoomTabs";
-import { DraggableWidget } from "@/components/widgets/DraggableWidget";
-import { WidgetRenderer } from "@/components/widgets/WidgetRenderer";
-import { useWidgetLayout, calculatePageWidgets } from "@/hooks/useWidgetLayout";
+import { WidgetGrid } from "@/components/widgets/WidgetGrid";
+import { useGridLayout } from "@/hooks/useGridLayout";
 import { useDensityConfig } from "@/hooks/useDensityConfig";
 import { DensitySettingsDialog } from "@/components/DensitySettingsDialog";
 import { PageIndicator } from "@/components/PageIndicator";
@@ -30,51 +15,22 @@ const rooms = ["All Rooms", "Living Room", "Bedroom", "Kitchen", "Bathroom", "Of
 const Index = () => {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [activeRoom, setActiveRoom] = useState("All Rooms");
-  const [currentPage, setCurrentPage] = useState(0);
   const [densityDialogOpen, setDensityDialogOpen] = useState(false);
   
-  const { widgets, isEditMode, handleDragEnd, toggleEditMode, resetLayout, resizeWidget } = useWidgetLayout();
   const { presetIndex, currentPreset, setDensity } = useDensityConfig();
-
-  // Calculate which widgets fit on the current page
-  const { pageWidgets, totalPages } = useMemo(() => {
-    return calculatePageWidgets(widgets, currentPreset, currentPage);
-  }, [widgets, currentPreset, currentPage]);
-
-  // Ensure current page is valid when widgets or density changes
-  const validatedPage = useMemo(() => {
-    const maxPage = Math.max(0, totalPages - 1);
-    return currentPage > maxPage ? maxPage : currentPage;
-  }, [totalPages, currentPage]);
-  
-  // Reset page when it becomes invalid
-  useMemo(() => {
-    if (validatedPage !== currentPage) {
-      setCurrentPage(validatedPage);
-    }
-  }, [validatedPage, currentPage]);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
-
-  const onDragEnd = (event: DragEndEvent) => {
-    handleDragEnd({
-      active: { id: event.active.id as string },
-      over: event.over ? { id: event.over.id as string } : null,
-    });
-  };
-
-  // Use the density preset columns and rows directly for the grid
-  const displayColumns = currentPreset.columns;
-  const displayRows = currentPreset.rows;
+  const { 
+    pageWidgets, 
+    isEditMode, 
+    toggleEditMode, 
+    resetLayout, 
+    resizeWidget,
+    moveWidget,
+    currentPage,
+    setCurrentPage,
+    totalPages,
+    gridCols,
+    gridRows,
+  } = useGridLayout(currentPreset);
 
   return (
     <div className="h-screen bg-background overflow-hidden flex flex-col">
@@ -136,33 +92,14 @@ const Index = () => {
 
         {/* Widget Grid - Fills remaining viewport height */}
         <div className="flex-1 px-6 pb-16 overflow-hidden">
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={onDragEnd}
-          >
-            <SortableContext items={pageWidgets.map(w => w.id)} strategy={rectSortingStrategy}>
-              <div 
-                className="h-full grid gap-3 animate-fade-in"
-                style={{
-                  gridTemplateColumns: `repeat(${displayColumns}, minmax(0, 1fr))`,
-                  gridTemplateRows: `repeat(${displayRows}, minmax(0, 1fr))`,
-                }}
-              >
-                {pageWidgets.map((widget) => (
-                  <DraggableWidget 
-                    key={widget.id} 
-                    id={widget.id} 
-                    isEditMode={isEditMode}
-                    size={widget.size}
-                    onResize={(newSize) => resizeWidget(widget.id, newSize)}
-                  >
-                    <WidgetRenderer widget={widget} />
-                  </DraggableWidget>
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
+          <WidgetGrid
+            widgets={pageWidgets}
+            isEditMode={isEditMode}
+            gridCols={gridCols}
+            gridRows={gridRows}
+            onMoveWidget={moveWidget}
+            onResizeWidget={resizeWidget}
+          />
         </div>
 
         {/* Page Indicator */}

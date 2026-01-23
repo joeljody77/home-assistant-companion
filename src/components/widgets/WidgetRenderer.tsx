@@ -1,4 +1,4 @@
-import { WidgetConfig } from "@/hooks/useWidgetLayout";
+import { WidgetConfig } from "@/hooks/useGridLayout";
 import { WidgetSizeProvider } from "@/contexts/WidgetSizeContext";
 import { LightWidget } from "./LightWidget";
 import { ClimateWidget } from "./ClimateWidget";
