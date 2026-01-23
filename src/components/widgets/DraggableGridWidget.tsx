@@ -88,7 +88,7 @@ export const DraggableGridWidget = ({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "relative h-full transition-all",
+        "relative h-full w-full min-h-0 min-w-0 transition-all",
         isDragging && "opacity-50 scale-95",
         resizeState.isResizing && "ring-2 ring-primary shadow-lg",
         isEditMode && !resizeState.isResizing && "ring-2 ring-primary/30 ring-offset-2 ring-offset-background rounded-2xl",
@@ -99,7 +99,8 @@ export const DraggableGridWidget = ({
       {isEditMode && (
         <ResizeHandles onResizeStart={handleResizeStart} />
       )}
-      <div className={cn(isEditMode && "pointer-events-none")}>
+      {/* Ensure children can actually stretch to the grid item's full size */}
+      <div className={cn("h-full w-full min-h-0 min-w-0", isEditMode && "pointer-events-none")}>
         {children}
       </div>
     </div>

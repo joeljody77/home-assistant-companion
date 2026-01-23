@@ -12,10 +12,17 @@ import { LockWidget } from "./LockWidget";
 
 interface WidgetRendererProps {
   widget: WidgetConfig;
+  /** Optional live overrides (used while resizing for immediate content scaling) */
+  overrideCols?: number;
+  overrideRows?: number;
 }
 
 export const WidgetRenderer = ({ widget }: WidgetRendererProps) => {
+export const WidgetRenderer = ({ widget, overrideCols, overrideRows }: WidgetRendererProps) => {
   const { type, props, size, customCols, customRows } = widget;
+
+  const effectiveCustomCols = overrideCols ?? customCols;
+  const effectiveCustomRows = overrideRows ?? customRows;
 
   const renderWidget = () => {
     switch (type) {
@@ -43,8 +50,15 @@ export const WidgetRenderer = ({ widget }: WidgetRendererProps) => {
   };
 
   return (
-    <WidgetSizeProvider size={size} customCols={customCols} customRows={customRows}>
-      {renderWidget()}
+    <WidgetSizeProvider size={size} customCols={effectiveCustomCols} customRows={effectiveCustomRows}>
+      {/*
+        Force the rendered widget's root element to stretch to the grid item's size.
+        Many widgets have a root <div> without h-full/w-full, which causes the
+        background and internal layout to stay compact even when the grid span grows.
+      */}
+      <div className="h-full w-full min-h-0 min-w-0 [&>*]:h-full [&>*]:w-full [&>*]:min-h-0 [&>*]:min-w-0">
+        {renderWidget()}
+      </div>
     </WidgetSizeProvider>
   );
 };
