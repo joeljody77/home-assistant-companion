@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { GridPosition, WidgetSize, getWidgetDimensions } from "./useGridLayout";
 
 export type ResizeEdge = "top" | "right" | "bottom" | "left" | "top-left" | "top-right" | "bottom-left" | "bottom-right";
@@ -71,6 +71,18 @@ export const useWidgetResize = ({
     };
   }, [gridRef, gridCols, gridRows]);
 
+  // Exclude the widget itself from collision checks.
+  const selfCells = useMemo(() => {
+    const { cols, rows } = getWidgetDimensions(size);
+    const set = new Set<string>();
+    for (let r = position.row; r < position.row + rows; r++) {
+      for (let c = position.col; c < position.col + cols; c++) {
+        set.add(`${c},${r}`);
+      }
+    }
+    return set;
+  }, [position.col, position.row, size]);
+
   const canResizeTo = useCallback((
     newPos: GridPosition,
     newCols: number,
@@ -85,14 +97,14 @@ export const useWidgetResize = ({
     for (let r = newPos.row; r < newPos.row + newRows; r++) {
       for (let c = newPos.col; c < newPos.col + newCols; c++) {
         const cellKey = `${c},${r}`;
-        if (occupiedCells.has(cellKey)) {
+        if (occupiedCells.has(cellKey) && !selfCells.has(cellKey)) {
           return false;
         }
       }
     }
     
     return true;
-  }, [occupiedCells, gridCols, gridRows]);
+  }, [occupiedCells, selfCells, gridCols, gridRows]);
 
   const handleResizeStart = useCallback((
     e: React.PointerEvent,
@@ -102,6 +114,13 @@ export const useWidgetResize = ({
     
     e.preventDefault();
     e.stopPropagation();
+
+    // Ensure subsequent pointer events keep flowing even if the pointer leaves the handle.
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // no-op: some environments may throw if capture isn't available
+    }
     
     const { cols, rows } = getWidgetDimensions(size);
     
@@ -221,12 +240,15 @@ export const useWidgetResize = ({
       initialPointerRef.current = null;
     };
 
-    document.addEventListener('pointermove', handlePointerMove);
-    document.addEventListener('pointerup', handlePointerUp);
+    // Use capture phase to avoid other libs (e.g., DnD) stopping bubbling.
+    document.addEventListener("pointermove", handlePointerMove, { capture: true });
+    document.addEventListener("pointerup", handlePointerUp, { capture: true });
+    document.addEventListener("pointercancel", handlePointerUp, { capture: true });
 
     return () => {
-      document.removeEventListener('pointermove', handlePointerMove);
-      document.removeEventListener('pointerup', handlePointerUp);
+      document.removeEventListener("pointermove", handlePointerMove, { capture: true } as any);
+      document.removeEventListener("pointerup", handlePointerUp, { capture: true } as any);
+      document.removeEventListener("pointercancel", handlePointerUp, { capture: true } as any);
     };
   }, [resizeState.isResizing, getCellDimensions, canResizeTo, onResize]);
 
