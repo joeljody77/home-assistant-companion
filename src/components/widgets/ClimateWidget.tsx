@@ -20,9 +20,17 @@ export const ClimateWidget = ({
 }: ClimateWidgetProps) => {
   const [targetTemp, setTargetTemp] = useState(initialTarget);
   const [mode, setMode] = useState(initialMode);
-  const { isCompact, isWide, isTall, isLarge } = useWidgetSize();
+  const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
 
   const isActive = mode !== "off";
+  const minDim = Math.min(cols, rows);
+
+  // Calculate dynamic sizes
+  const iconSize = minDim >= 3 ? "w-10 h-10" : isLarge ? "w-7 h-7" : isWide || isTall ? "w-6 h-6" : "w-5 h-5";
+  const iconPadding = minDim >= 3 ? "p-4" : isLarge ? "p-3" : "p-2";
+  const tempSize = minDim >= 4 ? "text-7xl" : minDim >= 3 ? "text-6xl" : isLarge ? "text-5xl" : isTall ? "text-4xl" : isWide ? "text-3xl" : "text-2xl";
+  const targetSize = minDim >= 3 ? "text-4xl" : isLarge ? "text-3xl" : isWide ? "text-xl" : "text-2xl";
+  const titleSize = minDim >= 3 ? "text-xl" : isLarge ? "text-lg" : "text-sm";
 
   const incrementTemp = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -83,7 +91,7 @@ export const ClimateWidget = ({
     );
   }
 
-  // Wide 2x1 layout
+  // Wide layout (not tall)
   if (isWide && !isTall) {
     return (
       <div
@@ -97,15 +105,16 @@ export const ClimateWidget = ({
           <div className="flex items-center gap-2">
             <div
               className={cn(
-                "p-2 rounded-xl transition-colors duration-300",
+                "rounded-xl transition-colors duration-300",
+                iconPadding,
                 isActive ? "bg-primary/20" : "bg-secondary"
               )}
             >
-              <Thermometer className={cn("w-5 h-5", getModeColor())} />
+              <Thermometer className={cn(iconSize, getModeColor())} />
             </div>
             <div>
-              <h3 className="font-medium text-foreground text-sm">{name}</h3>
-              <p className="text-xs text-muted-foreground capitalize">{mode}</p>
+              <h3 className={cn("font-medium text-foreground", titleSize)}>{name}</h3>
+              <p className={cn("text-muted-foreground capitalize", minDim >= 3 ? "text-base" : "text-xs")}>{mode}</p>
             </div>
           </div>
           <div
@@ -118,8 +127,8 @@ export const ClimateWidget = ({
 
         <div className="flex items-center justify-between flex-1">
           <div>
-            <p className="text-3xl font-light text-foreground">{currentTemp}°</p>
-            <p className="text-xs text-muted-foreground">Current</p>
+            <p className={cn("font-light text-foreground", tempSize)}>{currentTemp}°</p>
+            <p className={cn("text-muted-foreground", minDim >= 3 ? "text-base" : "text-xs")}>Current</p>
           </div>
 
           <div className="flex items-center gap-1">
@@ -127,22 +136,22 @@ export const ClimateWidget = ({
               onClick={decrementTemp}
               className="p-1 rounded-lg hover:bg-secondary transition-colors"
             >
-              <ChevronDown className="w-4 h-4 text-muted-foreground" />
+              <ChevronDown className={cn("text-muted-foreground", minDim >= 3 ? "w-6 h-6" : "w-4 h-4")} />
             </button>
             <div className="text-center min-w-[50px]">
-              <p className={cn("text-xl font-medium", getModeColor())}>{targetTemp}°</p>
-              <p className="text-xs text-muted-foreground">Target</p>
+              <p className={cn("font-medium", getModeColor(), targetSize)}>{targetTemp}°</p>
+              <p className={cn("text-muted-foreground", minDim >= 3 ? "text-base" : "text-xs")}>Target</p>
             </div>
             <button
               onClick={incrementTemp}
               className="p-1 rounded-lg hover:bg-secondary transition-colors"
             >
-              <ChevronUp className="w-4 h-4 text-muted-foreground" />
+              <ChevronUp className={cn("text-muted-foreground", minDim >= 3 ? "w-6 h-6" : "w-4 h-4")} />
             </button>
           </div>
 
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Droplets className="w-4 h-4" />
+          <div className={cn("flex items-center gap-2 text-muted-foreground", minDim >= 3 ? "text-lg" : "text-sm")}>
+            <Droplets className={minDim >= 3 ? "w-5 h-5" : "w-4 h-4"} />
             <span>{humidity}%</span>
           </div>
         </div>
@@ -150,7 +159,7 @@ export const ClimateWidget = ({
     );
   }
 
-  // Large 2x2 or Tall 1x2 layout with full controls
+  // Large or Tall layout with full controls
   return (
     <div
       className={cn(
@@ -163,15 +172,16 @@ export const ClimateWidget = ({
         <div className="flex items-center gap-3">
           <div
             className={cn(
-              "p-3 rounded-xl transition-colors duration-300",
+              "rounded-xl transition-colors duration-300",
+              iconPadding,
               isActive ? "bg-primary/20" : "bg-secondary"
             )}
           >
-            <Thermometer className={cn(getModeColor(), isLarge ? "w-7 h-7" : "w-6 h-6")} />
+            <Thermometer className={cn(getModeColor(), iconSize)} />
           </div>
           <div>
-            <h3 className={cn("font-medium text-foreground", isLarge && "text-lg")}>{name}</h3>
-            <p className="text-sm text-muted-foreground capitalize">{mode}</p>
+            <h3 className={cn("font-medium text-foreground", titleSize)}>{name}</h3>
+            <p className={cn("text-muted-foreground capitalize", minDim >= 3 ? "text-base" : "text-sm")}>{mode}</p>
           </div>
         </div>
         <div
@@ -185,10 +195,10 @@ export const ClimateWidget = ({
       <div className="flex items-center justify-between flex-1">
         <div className="flex items-center gap-6">
           <div>
-            <p className={cn("font-light text-foreground", isLarge ? "text-5xl" : "text-4xl")}>
+            <p className={cn("font-light text-foreground", tempSize)}>
               {currentTemp}°
             </p>
-            <p className="text-xs text-muted-foreground mt-1">Current</p>
+            <p className={cn("text-muted-foreground mt-1", minDim >= 3 ? "text-base" : "text-xs")}>Current</p>
           </div>
 
           <div className="flex flex-col items-center gap-1">
@@ -196,42 +206,43 @@ export const ClimateWidget = ({
               onClick={incrementTemp}
               className="p-1 rounded-lg hover:bg-secondary transition-colors"
             >
-              <ChevronUp className="w-5 h-5 text-muted-foreground" />
+              <ChevronUp className={cn("text-muted-foreground", minDim >= 3 ? "w-7 h-7" : "w-5 h-5")} />
             </button>
             <div className="text-center">
-              <p className={cn("font-medium", getModeColor(), isLarge ? "text-3xl" : "text-2xl")}>
+              <p className={cn("font-medium", getModeColor(), targetSize)}>
                 {targetTemp}°
               </p>
-              <p className="text-xs text-muted-foreground">Target</p>
+              <p className={cn("text-muted-foreground", minDim >= 3 ? "text-base" : "text-xs")}>Target</p>
             </div>
             <button
               onClick={decrementTemp}
               className="p-1 rounded-lg hover:bg-secondary transition-colors"
             >
-              <ChevronDown className="w-5 h-5 text-muted-foreground" />
+              <ChevronDown className={cn("text-muted-foreground", minDim >= 3 ? "w-7 h-7" : "w-5 h-5")} />
             </button>
           </div>
         </div>
 
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Droplets className="w-4 h-4" />
+        <div className={cn("flex flex-col gap-3", minDim >= 3 && "gap-4")}>
+          <div className={cn("flex items-center gap-2 text-muted-foreground", minDim >= 3 ? "text-lg" : "text-sm")}>
+            <Droplets className={minDim >= 3 ? "w-5 h-5" : "w-4 h-4"} />
             <span>{humidity}%</span>
           </div>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Wind className="w-4 h-4" />
+          <div className={cn("flex items-center gap-2 text-muted-foreground", minDim >= 3 ? "text-lg" : "text-sm")}>
+            <Wind className={minDim >= 3 ? "w-5 h-5" : "w-4 h-4"} />
             <span>Auto</span>
           </div>
         </div>
       </div>
 
-      <div className={cn("flex gap-2 mt-auto pt-4", isLarge && "gap-3")}>
+      <div className={cn("flex gap-2 mt-auto pt-4", minDim >= 3 && "gap-3 pt-6")}>
         {(["off", "heating", "cooling", "auto"] as const).map((m) => (
           <button
             key={m}
             onClick={() => setMode(m)}
             className={cn(
-              "flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-colors capitalize",
+              "flex-1 py-2 px-3 rounded-lg font-medium transition-colors capitalize",
+              minDim >= 3 ? "text-base py-3" : "text-xs",
               mode === m
                 ? "bg-primary text-primary-foreground"
                 : "bg-secondary text-muted-foreground hover:bg-muted"

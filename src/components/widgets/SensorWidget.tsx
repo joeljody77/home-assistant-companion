@@ -48,7 +48,15 @@ export const SensorWidget = ({
 }: SensorWidgetProps) => {
   const Icon = sensorIcons[type];
   const colorClass = sensorColors[type];
-  const { isCompact, isWide, isTall, isLarge } = useWidgetSize();
+  const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
+
+  // Calculate dynamic sizes
+  const minDim = Math.min(cols, rows);
+  const iconSize = minDim >= 3 ? "w-12 h-12" : isLarge ? "w-8 h-8" : isTall ? "w-8 h-8" : isWide ? "w-6 h-6" : "w-4 h-4";
+  const iconPadding = minDim >= 3 ? "p-5" : isLarge ? "p-4" : isTall ? "p-4" : isWide ? "p-3" : "p-2";
+  const valueSize = minDim >= 4 ? "text-8xl" : minDim >= 3 ? "text-7xl" : isLarge ? "text-6xl" : isTall ? "text-4xl" : isWide ? "text-3xl" : "text-2xl";
+  const unitSize = minDim >= 3 ? "text-3xl" : isLarge ? "text-2xl" : isTall ? "text-xl" : isWide ? "text-lg" : "text-sm";
+  const titleSize = minDim >= 3 ? "text-xl" : isLarge ? "text-lg" : "text-xs";
 
   // Compact 1x1 layout
   if (isCompact) {
@@ -74,69 +82,69 @@ export const SensorWidget = ({
     );
   }
 
-  // Wide 2x1 layout
+  // Wide layout (not tall)
   if (isWide && !isTall) {
     return (
       <div className="widget-card h-full flex items-center gap-4">
-        <div className="p-3 rounded-xl bg-secondary">
-          <Icon className={cn("w-6 h-6", colorClass)} />
+        <div className={cn("rounded-xl bg-secondary", iconPadding)}>
+          <Icon className={cn(iconSize, colorClass)} />
         </div>
         
         <div className="flex-1">
-          <h3 className="font-medium text-foreground text-sm">{name}</h3>
+          <h3 className={cn("font-medium text-foreground", titleSize)}>{name}</h3>
           {room && (
-            <p className="text-xs text-muted-foreground">{room}</p>
+            <p className={cn("text-muted-foreground", minDim >= 3 ? "text-base" : "text-xs")}>{room}</p>
           )}
         </div>
 
-        <p className="text-3xl font-light text-foreground">
+        <p className={cn("font-light text-foreground", valueSize)}>
           {value}
-          <span className="text-lg text-muted-foreground ml-1">{unit}</span>
+          <span className={cn("text-muted-foreground ml-1", unitSize)}>{unit}</span>
         </p>
       </div>
     );
   }
 
-  // Tall 1x2 layout
+  // Tall only layout (centered vertical)
   if (isTall && !isWide) {
     return (
       <div className="widget-card h-full flex flex-col items-center justify-center text-center">
-        <div className="p-4 rounded-xl bg-secondary mb-4">
-          <Icon className={cn("w-8 h-8", colorClass)} />
+        <div className={cn("rounded-xl bg-secondary mb-4", iconPadding)}>
+          <Icon className={cn(iconSize, colorClass)} />
         </div>
         
-        <p className="text-4xl font-light text-foreground">
+        <p className={cn("font-light text-foreground", valueSize)}>
           {value}
-          <span className="text-xl text-muted-foreground ml-1">{unit}</span>
+          <span className={cn("text-muted-foreground ml-1", unitSize)}>{unit}</span>
         </p>
-        <h3 className="font-medium text-foreground mt-3">{name}</h3>
+        <h3 className={cn("font-medium text-foreground mt-3", titleSize)}>{name}</h3>
         {room && (
-          <p className="text-sm text-muted-foreground">{room}</p>
+          <p className={cn("text-muted-foreground", minDim >= 3 ? "text-base" : "text-sm")}>{room}</p>
         )}
       </div>
     );
   }
 
-  // Large 2x2 layout
+  // Large layout (both wide and tall)
   return (
     <div className="widget-card h-full flex flex-col">
       <div className="flex items-start justify-between mb-4">
-        <div className="p-4 rounded-xl bg-secondary">
-          <Icon className={cn("w-8 h-8", colorClass)} />
+        <div className={cn("rounded-xl bg-secondary", iconPadding)}>
+          <Icon className={cn(iconSize, colorClass)} />
         </div>
       </div>
 
       <div className="flex-1 flex flex-col items-center justify-center text-center">
-        <p className="text-6xl font-light text-foreground">
+        <p className={cn("font-light text-foreground", valueSize)}>
           {value}
-          <span className="text-2xl text-muted-foreground ml-2">{unit}</span>
+          <span className={cn("text-muted-foreground ml-2", unitSize)}>{unit}</span>
         </p>
       </div>
 
-      <div className="mt-auto pt-4 border-t border-border">
-        <h3 className="font-medium text-foreground text-lg">{name}</h3>
+      <div className={cn("mt-auto pt-4 border-t border-border", minDim >= 3 && "pt-6")}>
+        <h3 className={cn("font-medium text-foreground", titleSize)}>{name}</h3>
         {room && (
-          <p className="text-sm text-muted-foreground">{room}</p>
+          <p className={cn("text-muted-foreground", minDim >= 3 ? "text-base" : "text-sm")}>{room}</p>
         )}
       </div>
     </div>

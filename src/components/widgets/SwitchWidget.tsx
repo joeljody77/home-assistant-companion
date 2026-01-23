@@ -28,7 +28,14 @@ export const SwitchWidget = ({
 }: SwitchWidgetProps) => {
   const [isOn, setIsOn] = useState(initialState);
   const Icon = deviceIcons[type];
-  const { isCompact, isWide, isTall, isLarge } = useWidgetSize();
+  const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
+
+  // Calculate dynamic sizes
+  const minDim = Math.min(cols, rows);
+  const iconSize = minDim >= 3 ? "w-16 h-16" : isLarge ? "w-12 h-12" : isTall ? "w-10 h-10" : isWide ? "w-6 h-6" : "w-5 h-5";
+  const iconPadding = minDim >= 3 ? "p-7" : isLarge ? "p-5" : isTall ? "p-5" : isWide ? "p-3" : "p-2.5";
+  const titleSize = minDim >= 3 ? "text-2xl" : isLarge ? "text-lg" : "text-sm";
+  const subtitleSize = minDim >= 3 ? "text-lg" : isLarge ? "text-sm" : "text-xs";
 
   // Compact 1x1 layout
   if (isCompact) {
@@ -80,7 +87,7 @@ export const SwitchWidget = ({
     );
   }
 
-  // Wide 2x1 layout
+  // Wide layout (not tall)
   if (isWide && !isTall) {
     return (
       <button
@@ -92,29 +99,32 @@ export const SwitchWidget = ({
       >
         <div
           className={cn(
-            "p-3 rounded-xl transition-colors duration-300",
+            "rounded-xl transition-colors duration-300 shrink-0",
+            iconPadding,
             isOn ? "bg-primary/20" : "bg-secondary"
           )}
         >
           <Icon
             className={cn(
-              "w-6 h-6 transition-colors duration-300",
+              "transition-colors duration-300",
+              iconSize,
               isOn ? "text-primary" : "text-muted-foreground"
             )}
           />
         </div>
 
-        <div className="flex-1">
-          <h3 className="font-medium text-foreground">{name}</h3>
+        <div className="flex-1 min-w-0">
+          <h3 className={cn("font-medium text-foreground", titleSize)}>{name}</h3>
           {room && (
-            <p className="text-xs text-muted-foreground">{room}</p>
+            <p className={cn("text-muted-foreground", subtitleSize)}>{room}</p>
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           <p
             className={cn(
-              "text-sm font-medium",
+              "font-medium",
+              minDim >= 3 ? "text-lg" : "text-sm",
               isOn ? "text-primary" : "text-muted-foreground"
             )}
           >
@@ -131,37 +141,41 @@ export const SwitchWidget = ({
     );
   }
 
-  // Tall 1x2 or Large 2x2 layout
+  // Tall or Large layout - centered
   return (
     <button
       onClick={() => setIsOn(!isOn)}
       className={cn(
-        "widget-card text-left w-full h-full flex flex-col items-center justify-center",
+        "widget-card text-left w-full h-full flex flex-col items-center justify-center gap-4",
         isOn && "widget-card-active"
       )}
     >
       <div
         className={cn(
-          "p-5 rounded-2xl transition-colors duration-300",
+          "rounded-2xl transition-colors duration-300",
+          iconPadding,
           isOn ? "bg-primary/20" : "bg-secondary"
         )}
       >
         <Icon
           className={cn(
             "transition-colors duration-300",
-            isOn ? "text-primary" : "text-muted-foreground",
-            isLarge ? "w-12 h-12" : "w-10 h-10"
+            iconSize,
+            isOn ? "text-primary" : "text-muted-foreground"
           )}
         />
       </div>
 
-      <h3 className={cn("font-medium text-foreground mt-4", isLarge && "text-lg")}>{name}</h3>
-      {room && (
-        <p className="text-sm text-muted-foreground">{room}</p>
-      )}
+      <div className="text-center">
+        <h3 className={cn("font-medium text-foreground", titleSize)}>{name}</h3>
+        {room && (
+          <p className={cn("text-muted-foreground mt-1", subtitleSize)}>{room}</p>
+        )}
+      </div>
       
       <div className={cn(
-        "mt-4 px-6 py-2 rounded-full text-sm font-medium transition-colors",
+        "px-6 py-2 rounded-full font-medium transition-colors",
+        minDim >= 3 ? "text-lg px-8 py-3" : "text-sm",
         isOn 
           ? "bg-primary text-primary-foreground" 
           : "bg-secondary text-muted-foreground"

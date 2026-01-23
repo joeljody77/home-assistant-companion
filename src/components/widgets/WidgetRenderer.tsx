@@ -15,7 +15,7 @@ interface WidgetRendererProps {
 }
 
 export const WidgetRenderer = ({ widget }: WidgetRendererProps) => {
-  const { type, props, size } = widget;
+  const { type, props, size, customCols, customRows } = widget;
 
   const renderWidget = () => {
     switch (type) {
@@ -43,7 +43,7 @@ export const WidgetRenderer = ({ widget }: WidgetRendererProps) => {
   };
 
   return (
-    <WidgetSizeProvider size={size}>
+    <WidgetSizeProvider size={size} customCols={customCols} customRows={customRows}>
       {renderWidget()}
     </WidgetSizeProvider>
   );
