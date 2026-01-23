@@ -407,6 +407,14 @@ export const useGridLayout = (density: DensityPreset) => {
     setIsEditMode((prev) => !prev);
   }, []);
 
+  const deleteWidget = useCallback((widgetId: string) => {
+    setWidgets((currentWidgets) => {
+      const newWidgets = currentWidgets.filter(w => w.id !== widgetId);
+      saveLayout(newWidgets);
+      return newWidgets;
+    });
+  }, []);
+
   const resetLayout = useCallback(() => {
     setWidgets(defaultWidgets);
     saveLayout(defaultWidgets);
@@ -420,6 +428,7 @@ export const useGridLayout = (density: DensityPreset) => {
     resetLayout,
     resizeWidget,
     moveWidget,
+    deleteWidget,
     currentPage,
     setCurrentPage,
     totalPages,

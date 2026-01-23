@@ -1,5 +1,6 @@
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
+import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { WidgetSize, getWidgetDimensions, GridPosition } from "@/hooks/useGridLayout";
 import { useWidgetResize } from "@/hooks/useWidgetResize";
@@ -18,6 +19,7 @@ interface DraggableGridWidgetProps {
   gridRows: number;
   gridRef: React.RefObject<HTMLDivElement>;
   onResize?: (size: WidgetSize, newPosition: GridPosition, customCols: number, customRows: number) => void;
+  onDelete?: () => void;
 }
 
 export const DraggableGridWidget = ({ 
@@ -32,7 +34,8 @@ export const DraggableGridWidget = ({
   gridCols,
   gridRows,
   gridRef,
-  onResize 
+  onResize,
+  onDelete,
 }: DraggableGridWidgetProps) => {
   const {
     attributes,
@@ -83,6 +86,12 @@ export const DraggableGridWidget = ({
     zIndex: isDragging || resizeState.isResizing ? 50 : undefined,
   };
 
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onDelete?.();
+  };
+
   return (
     <div
       ref={setNodeRef}
@@ -97,7 +106,17 @@ export const DraggableGridWidget = ({
       {...(isEditMode ? { ...attributes, ...listeners } : {})}
     >
       {isEditMode && (
-        <ResizeHandles onResizeStart={handleResizeStart} />
+        <>
+          <ResizeHandles onResizeStart={handleResizeStart} />
+          {/* Delete button */}
+          <button
+            onClick={handleDelete}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="absolute -top-2 -right-2 z-10 w-6 h-6 rounded-full bg-destructive hover:bg-destructive/90 flex items-center justify-center shadow-lg transition-transform hover:scale-110"
+          >
+            <X className="w-4 h-4 text-destructive-foreground" />
+          </button>
+        </>
       )}
       {/* Ensure children can actually stretch to the grid item's full size */}
       <div className={cn("h-full w-full min-h-0 min-w-0", isEditMode && "pointer-events-none")}>
