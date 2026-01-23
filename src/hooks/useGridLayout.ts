@@ -120,7 +120,23 @@ export const getOccupiedCells = (position: GridPosition, size: WidgetSize): stri
   return cells;
 };
 
-// Auto-place widgets on a grid, returns widgets with positions assigned for a specific page
+// Check if a widget's existing position is valid within the current grid
+const isPositionValid = (
+  position: GridPosition,
+  size: WidgetSize,
+  gridCols: number,
+  gridRows: number
+): boolean => {
+  const { cols, rows } = getWidgetDimensions(size);
+  return (
+    position.col >= 0 &&
+    position.row >= 0 &&
+    position.col + cols <= gridCols &&
+    position.row + rows <= gridRows
+  );
+};
+
+// Auto-place widgets on a grid, respecting existing positions when valid
 export const autoPlaceWidgets = (
   widgets: WidgetConfig[],
   gridCols: number,
@@ -130,7 +146,34 @@ export const autoPlaceWidgets = (
   let currentPage: WidgetConfig[] = [];
   let occupiedCells = new Set<string>();
   
+  // Separate widgets with valid positions from those needing placement
+  const widgetsWithValidPositions: WidgetConfig[] = [];
+  const widgetsNeedingPlacement: WidgetConfig[] = [];
+  
   for (const widget of widgets) {
+    if (widget.position && isPositionValid(widget.position, widget.size, gridCols, gridRows)) {
+      widgetsWithValidPositions.push(widget);
+    } else {
+      widgetsNeedingPlacement.push(widget);
+    }
+  }
+  
+  // First, place widgets that already have valid positions
+  for (const widget of widgetsWithValidPositions) {
+    const position = widget.position!;
+    
+    // Check if it fits on current page without overlap
+    if (canPlaceWidget(position, widget.size, occupiedCells, gridCols, gridRows)) {
+      currentPage.push({ ...widget, position });
+      getOccupiedCells(position, widget.size).forEach(cell => occupiedCells.add(cell));
+    } else {
+      // Position conflicts - needs re-placement
+      widgetsNeedingPlacement.push({ ...widget, position: undefined });
+    }
+  }
+  
+  // Then, auto-place widgets that need positions
+  for (const widget of widgetsNeedingPlacement) {
     const { cols, rows } = getWidgetDimensions(widget.size);
     let placed = false;
     
@@ -139,8 +182,7 @@ export const autoPlaceWidgets = (
       for (let col = 0; col <= gridCols - cols && !placed; col++) {
         const position = { col, row };
         if (canPlaceWidget(position, widget.size, occupiedCells, gridCols, gridRows)) {
-          const placedWidget = { ...widget, position };
-          currentPage.push(placedWidget);
+          currentPage.push({ ...widget, position });
           getOccupiedCells(position, widget.size).forEach(cell => occupiedCells.add(cell));
           placed = true;
         }
@@ -157,8 +199,7 @@ export const autoPlaceWidgets = (
       
       // Place at the beginning of the new page
       const position = { col: 0, row: 0 };
-      const placedWidget = { ...widget, position };
-      currentPage.push(placedWidget);
+      currentPage.push({ ...widget, position });
       getOccupiedCells(position, widget.size).forEach(cell => occupiedCells.add(cell));
     }
   }
