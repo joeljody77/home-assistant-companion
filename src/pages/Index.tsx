@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { WidgetGrid } from "@/components/widgets/WidgetGrid";
-import { useGridLayout } from "@/hooks/useGridLayout";
+import { useGridLayout, GridPosition } from "@/hooks/useGridLayout";
 import { useDensityConfig } from "@/hooks/useDensityConfig";
 import { DensitySettingsDialog } from "@/components/DensitySettingsDialog";
 import { AddWidgetDialog } from "@/components/AddWidgetDialog";
@@ -11,6 +11,8 @@ const Index = () => {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [densityDialogOpen, setDensityDialogOpen] = useState(false);
   const [addWidgetDialogOpen, setAddWidgetDialogOpen] = useState(false);
+  const [isCellSelectionMode, setIsCellSelectionMode] = useState(false);
+  const [selectedCell, setSelectedCell] = useState<GridPosition | null>(null);
   
   const { presetIndex, currentPreset, setDensity } = useDensityConfig();
   const { 
@@ -27,7 +29,36 @@ const Index = () => {
     totalPages,
     gridCols,
     gridRows,
+    occupiedCells,
   } = useGridLayout(currentPreset);
+
+  // Handle add widget button press - enter cell selection mode
+  const handleAddWidgetStart = useCallback(() => {
+    setIsCellSelectionMode(true);
+    setSelectedCell(null);
+  }, []);
+
+  // Handle cell selection
+  const handleCellSelect = useCallback((col: number, row: number) => {
+    setSelectedCell({ col, row });
+    setAddWidgetDialogOpen(true);
+  }, []);
+
+  // Handle dialog close - reset selection mode
+  const handleDialogOpenChange = useCallback((open: boolean) => {
+    setAddWidgetDialogOpen(open);
+    if (!open) {
+      setIsCellSelectionMode(false);
+      setSelectedCell(null);
+    }
+  }, []);
+
+  // Handle widget addition with position
+  const handleAddWidget = useCallback((type: string, props: Record<string, unknown>, position?: GridPosition) => {
+    addWidget(type, props, position);
+    setIsCellSelectionMode(false);
+    setSelectedCell(null);
+  }, [addWidget]);
 
   return (
     <div className="h-screen bg-background overflow-hidden flex">
@@ -38,7 +69,7 @@ const Index = () => {
         onToggleEditMode={toggleEditMode}
         onOpenDensity={() => setDensityDialogOpen(true)}
         onResetLayout={resetLayout}
-        onAddWidget={() => setAddWidgetDialogOpen(true)}
+        onAddWidget={handleAddWidgetStart}
       />
       
       <main className="ml-20 flex-1 flex flex-col overflow-hidden">
@@ -52,6 +83,10 @@ const Index = () => {
             onMoveWidget={moveWidget}
             onResizeWidget={resizeWidget}
             onDeleteWidget={deleteWidget}
+            isCellSelectionMode={isCellSelectionMode}
+            occupiedCells={occupiedCells}
+            selectedCell={selectedCell}
+            onCellSelect={handleCellSelect}
           />
         </div>
 
@@ -75,8 +110,9 @@ const Index = () => {
       {/* Add Widget Dialog */}
       <AddWidgetDialog
         open={addWidgetDialogOpen}
-        onOpenChange={setAddWidgetDialogOpen}
-        onAddWidget={addWidget}
+        onOpenChange={handleDialogOpenChange}
+        onAddWidget={handleAddWidget}
+        selectedCell={selectedCell}
       />
     </div>
   );
