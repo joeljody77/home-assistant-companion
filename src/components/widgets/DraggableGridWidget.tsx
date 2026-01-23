@@ -52,8 +52,6 @@ export const DraggableGridWidget = ({
   const {
     resizeState,
     handleResizeStart,
-    handleResizeMove,
-    handleResizeEnd,
   } = useWidgetResize({
     widgetId: id,
     position,
@@ -103,12 +101,7 @@ export const DraggableGridWidget = ({
           </button>
 
           {/* Resize handles on edges and corners */}
-          <ResizeHandles
-            onResizeStart={handleResizeStart}
-            onResizeMove={handleResizeMove}
-            onResizeEnd={handleResizeEnd}
-            isResizing={resizeState.isResizing}
-          />
+          <ResizeHandles onResizeStart={handleResizeStart} />
         </>
       )}
       {children}
