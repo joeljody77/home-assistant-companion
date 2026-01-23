@@ -18,6 +18,10 @@ export const DragPreviewOverlay = ({
 }: DragPreviewOverlayProps) => {
   const { cols, rows } = getWidgetDimensions(widgetSize);
   
+  // Only show preview for multi-cell widgets
+  const isMultiCell = cols > 1 || rows > 1;
+  if (!isMultiCell) return null;
+  
   // Check if placement is valid (within bounds and no collisions)
   const isWithinBounds = 
     hoveredCell.col + cols <= gridCols && 
@@ -31,7 +35,7 @@ export const DragPreviewOverlay = ({
   return (
     <div
       className={cn(
-        "absolute rounded-lg border-2 transition-all duration-150 pointer-events-none z-10",
+        "rounded-lg border-2 transition-all duration-150 pointer-events-none z-10",
         isValid
           ? "bg-primary/20 border-primary"
           : "bg-destructive/20 border-destructive border-dashed"
