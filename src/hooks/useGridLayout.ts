@@ -190,6 +190,36 @@ export const getPageOccupiedCells = (
   return occupied;
 };
 
+// Find nearest empty position from a target (pure function, not a hook)
+const findNearestEmptyPosition = (
+  targetPosition: GridPosition,
+  size: WidgetSize,
+  occupiedCellsSet: Set<string>,
+  gridCols: number,
+  gridRows: number
+): GridPosition | null => {
+  // Search in expanding rings around the target position
+  for (let distance = 0; distance < Math.max(gridCols, gridRows); distance++) {
+    for (let dy = -distance; dy <= distance; dy++) {
+      for (let dx = -distance; dx <= distance; dx++) {
+        // Only check cells at exactly this distance (perimeter of square)
+        if (Math.abs(dx) !== distance && Math.abs(dy) !== distance) continue;
+        
+        const testPos: GridPosition = {
+          col: targetPosition.col + dx,
+          row: targetPosition.row + dy,
+        };
+        
+        if (canPlaceWidget(testPos, size, occupiedCellsSet, gridCols, gridRows)) {
+          return testPos;
+        }
+      }
+    }
+  }
+  
+  return null;
+};
+
 export const useGridLayout = (density: DensityPreset) => {
   const [widgets, setWidgets] = useState<WidgetConfig[]>(loadLayout);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -222,38 +252,6 @@ export const useGridLayout = (density: DensityPreset) => {
       setCurrentPage(validatedPage);
     }
   }, [validatedPage, currentPage]);
-
-  // Find nearest empty position from a target
-  const findNearestEmptyPosition = useCallback((
-    targetPosition: GridPosition,
-    size: WidgetSize,
-    occupiedCellsSet: Set<string>,
-    gridCols: number,
-    gridRows: number
-  ): GridPosition | null => {
-    const { cols, rows } = getWidgetDimensions(size);
-    
-    // Search in expanding rings around the target position
-    for (let distance = 0; distance < Math.max(gridCols, gridRows); distance++) {
-      for (let dy = -distance; dy <= distance; dy++) {
-        for (let dx = -distance; dx <= distance; dx++) {
-          // Only check cells at exactly this distance (perimeter of square)
-          if (Math.abs(dx) !== distance && Math.abs(dy) !== distance) continue;
-          
-          const testPos: GridPosition = {
-            col: targetPosition.col + dx,
-            row: targetPosition.row + dy,
-          };
-          
-          if (canPlaceWidget(testPos, size, occupiedCellsSet, gridCols, gridRows)) {
-            return testPos;
-          }
-        }
-      }
-    }
-    
-    return null;
-  }, []);
 
   // Move widget to a new position (find nearest empty spot if occupied)
   const moveWidget = useCallback((
@@ -317,7 +315,7 @@ export const useGridLayout = (density: DensityPreset) => {
       saveLayout(reorderedWidgets);
       return reorderedWidgets;
     });
-  }, [density.columns, density.rows, pages, currentPage, findNearestEmptyPosition]);
+  }, [density.columns, density.rows, pages, currentPage]);
 
   const resizeWidget = useCallback((widgetId: string, newSize: WidgetSize) => {
     setWidgets((items) => {
