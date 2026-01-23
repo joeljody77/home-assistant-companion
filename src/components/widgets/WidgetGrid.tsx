@@ -1,8 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import {
   DndContext,
   DragEndEvent,
   DragOverlay,
+  DragMoveEvent,
   PointerSensor,
   useSensor,
   useSensors,
@@ -13,6 +14,7 @@ import { useState } from "react";
 import { DraggableGridWidget } from "./DraggableGridWidget";
 import { WidgetRenderer } from "./WidgetRenderer";
 import { GridCell } from "./GridCell";
+import { DragPreviewOverlay } from "./DragPreviewOverlay";
 import { WidgetConfig, WidgetSize, GridPosition, getPageOccupiedCells } from "@/hooks/useGridLayout";
 
 interface WidgetGridProps {
@@ -33,6 +35,8 @@ export const WidgetGrid = ({
   onResizeWidget,
 }: WidgetGridProps) => {
   const [activeWidget, setActiveWidget] = useState<WidgetConfig | null>(null);
+  const [hoveredCell, setHoveredCell] = useState<GridPosition | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -42,23 +46,16 @@ export const WidgetGrid = ({
     })
   );
 
-  // Generate all grid cells for drop targets
+  // Generate all grid cells for visual grid lines
   const gridCells = useMemo(() => {
-    const cells: { col: number; row: number; isOccupied: boolean }[] = [];
-    const occupiedCells = getPageOccupiedCells(widgets, activeWidget?.id);
-
+    const cells: { col: number; row: number }[] = [];
     for (let row = 0; row < gridRows; row++) {
       for (let col = 0; col < gridCols; col++) {
-        const cellKey = `${col},${row}`;
-        cells.push({
-          col,
-          row,
-          isOccupied: occupiedCells.has(cellKey),
-        });
+        cells.push({ col, row });
       }
     }
     return cells;
-  }, [widgets, gridCols, gridRows, activeWidget?.id]);
+  }, [gridCols, gridRows]);
 
   const handleDragStart = (event: DragStartEvent) => {
     const widget = widgets.find(w => w.id === event.active.id);
@@ -67,39 +64,57 @@ export const WidgetGrid = ({
     }
   };
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    setActiveWidget(null);
+  const handleDragMove = (event: DragMoveEvent) => {
+    if (!gridRef.current || !activeWidget) return;
 
-    if (!over) return;
+    const gridRect = gridRef.current.getBoundingClientRect();
+    const pointer = event.activatorEvent as PointerEvent;
+    
+    // Calculate pointer position relative to grid
+    const relativeX = pointer.clientX + event.delta.x - gridRect.left;
+    const relativeY = pointer.clientY + event.delta.y - gridRect.top;
+    
+    // Calculate cell size
+    const cellWidth = gridRect.width / gridCols;
+    const cellHeight = gridRect.height / gridRows;
+    
+    // Determine which cell the pointer is over
+    const col = Math.floor(relativeX / cellWidth);
+    const row = Math.floor(relativeY / cellHeight);
+    
+    // Clamp to valid grid bounds
+    const clampedCol = Math.max(0, Math.min(col, gridCols - 1));
+    const clampedRow = Math.max(0, Math.min(row, gridRows - 1));
+    
+    setHoveredCell({ col: clampedCol, row: clampedRow });
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active } = event;
+    setActiveWidget(null);
+    setHoveredCell(null);
+
+    if (!hoveredCell) return;
 
     const widgetId = active.id as string;
-    const overData = over.data.current;
-
-    if (overData?.type === "cell") {
-      // Dropped on a cell
-      const targetPosition: GridPosition = {
-        col: overData.col,
-        row: overData.row,
-      };
-      onMoveWidget(widgetId, targetPosition);
-    } else if (overData?.type === "widget") {
-      // Dropped on another widget - swap positions
-      const targetWidget = widgets.find(w => w.id === over.id);
-      if (targetWidget?.position) {
-        onMoveWidget(widgetId, targetWidget.position);
-      }
-    }
+    onMoveWidget(widgetId, hoveredCell);
   };
+
+  // Get occupied cells excluding the active widget for collision detection
+  const occupiedCellsForPreview = useMemo(() => {
+    return getPageOccupiedCells(widgets, activeWidget?.id);
+  }, [widgets, activeWidget?.id]);
 
   return (
     <DndContext
       sensors={sensors}
       collisionDetection={pointerWithin}
       onDragStart={handleDragStart}
+      onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
     >
       <div
+        ref={gridRef}
         className="h-full grid gap-3 animate-fade-in relative"
         style={{
           gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
@@ -107,15 +122,25 @@ export const WidgetGrid = ({
         }}
       >
         {/* Grid cell drop targets (only in edit mode) */}
-        {isEditMode && gridCells.map(({ col, row, isOccupied }) => (
+        {isEditMode && gridCells.map(({ col, row }) => (
           <GridCell
             key={`cell-${col}-${row}`}
             col={col}
             row={row}
-            isOccupied={isOccupied}
             isEditMode={isEditMode}
           />
         ))}
+
+        {/* Drag preview overlay showing where widget will land */}
+        {activeWidget && hoveredCell && (
+          <DragPreviewOverlay
+            hoveredCell={hoveredCell}
+            widgetSize={activeWidget.size}
+            occupiedCells={occupiedCellsForPreview}
+            gridCols={gridCols}
+            gridRows={gridRows}
+          />
+        )}
 
         {/* Widgets */}
         {widgets.map((widget) => (
