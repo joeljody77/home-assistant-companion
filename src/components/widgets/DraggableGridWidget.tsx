@@ -112,7 +112,7 @@ export const DraggableGridWidget = ({
           <button
             onClick={handleDelete}
             onPointerDown={(e) => e.stopPropagation()}
-            className="absolute -top-2 -right-2 z-10 w-6 h-6 rounded-full bg-destructive hover:bg-destructive/90 flex items-center justify-center shadow-lg transition-transform hover:scale-110"
+            className="absolute top-2 right-2 z-10 w-6 h-6 rounded-full bg-destructive hover:bg-destructive/90 flex items-center justify-center shadow-lg transition-transform hover:scale-110"
           >
             <X className="w-4 h-4 text-destructive-foreground" />
           </button>
