@@ -10,7 +10,8 @@ import {
   Grid3X3,
   Pencil,
   Check,
-  RotateCcw
+  RotateCcw,
+  Plus
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +22,7 @@ interface SidebarProps {
   onToggleEditMode?: () => void;
   onOpenDensity?: () => void;
   onResetLayout?: () => void;
+  onAddWidget?: () => void;
 }
 
 const menuItems = [
@@ -39,6 +41,7 @@ export const Sidebar = ({
   onToggleEditMode,
   onOpenDensity,
   onResetLayout,
+  onAddWidget,
 }: SidebarProps) => {
   return (
     <aside className="fixed left-0 top-0 h-screen w-20 bg-sidebar flex flex-col items-center py-6 border-r border-sidebar-border z-50">
@@ -56,10 +59,10 @@ export const Sidebar = ({
             key={item.id}
             onClick={() => onSectionChange(item.id)}
             className={cn(
-              "w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-200",
+              "w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-150",
               activeSection === item.id
                 ? "bg-primary text-primary-foreground shadow-lg"
-                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                : "text-sidebar-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground"
             )}
             title={item.label}
           >
@@ -73,17 +76,28 @@ export const Sidebar = ({
         {/* Density Button */}
         <button
           onClick={onOpenDensity}
-          className="w-12 h-12 rounded-xl flex items-center justify-center text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all duration-200"
+          className="w-12 h-12 rounded-xl flex items-center justify-center text-sidebar-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground transition-all duration-150"
           title="Grid Density"
         >
           <Grid3X3 className="w-5 h-5" />
         </button>
 
+        {/* Add Widget Button - only in edit mode */}
+        {isEditMode && (
+          <button
+            onClick={onAddWidget}
+            className="w-12 h-12 rounded-xl flex items-center justify-center bg-primary text-primary-foreground shadow-lg active:scale-95 transition-all duration-150"
+            title="Add Widget"
+          >
+            <Plus className="w-5 h-5" />
+          </button>
+        )}
+
         {/* Reset Button - only in edit mode */}
         {isEditMode && (
           <button
             onClick={onResetLayout}
-            className="w-12 h-12 rounded-xl flex items-center justify-center text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all duration-200"
+            className="w-12 h-12 rounded-xl flex items-center justify-center text-sidebar-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground transition-all duration-150"
             title="Reset Layout"
           >
             <RotateCcw className="w-5 h-5" />
@@ -94,10 +108,10 @@ export const Sidebar = ({
         <button
           onClick={onToggleEditMode}
           className={cn(
-            "w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-200",
+            "w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-150",
             isEditMode
               ? "bg-primary text-primary-foreground shadow-lg"
-              : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              : "text-sidebar-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground"
           )}
           title={isEditMode ? "Done Editing" : "Edit Layout"}
         >
@@ -107,7 +121,7 @@ export const Sidebar = ({
 
       {/* Settings */}
       <button
-        className="w-12 h-12 rounded-xl flex items-center justify-center text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all duration-200"
+        className="w-12 h-12 rounded-xl flex items-center justify-center text-sidebar-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground transition-all duration-150"
         title="Settings"
       >
         <Settings className="w-5 h-5" />
