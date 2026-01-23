@@ -11,12 +11,14 @@ interface DraggableGridWidgetProps {
   children: React.ReactNode;
   isEditMode?: boolean;
   size: WidgetSize;
+  customCols?: number;
+  customRows?: number;
   position: GridPosition;
   occupiedCells: Set<string>;
   gridCols: number;
   gridRows: number;
   gridRef: React.RefObject<HTMLDivElement>;
-  onResize?: (size: WidgetSize, newPosition: GridPosition) => void;
+  onResize?: (size: WidgetSize, newPosition: GridPosition, customCols: number, customRows: number) => void;
 }
 
 export const DraggableGridWidget = ({ 
@@ -24,6 +26,8 @@ export const DraggableGridWidget = ({
   children, 
   isEditMode = false, 
   size,
+  customCols,
+  customRows,
   position,
   occupiedCells,
   gridCols,
@@ -47,7 +51,7 @@ export const DraggableGridWidget = ({
     disabled: !isEditMode,
   });
 
-  const { cols, rows } = getWidgetDimensions(size);
+  const { cols, rows } = getWidgetDimensions(size, customCols, customRows);
 
   const {
     resizeState,
@@ -56,11 +60,13 @@ export const DraggableGridWidget = ({
     widgetId: id,
     position,
     size,
+    customCols,
+    customRows,
     occupiedCells,
     gridCols,
     gridRows,
     gridRef,
-    onResize: (newSize, newPosition) => onResize?.(newSize, newPosition),
+    onResize: (newSize, newPosition, newCols, newRows) => onResize?.(newSize, newPosition, newCols, newRows),
     isEditMode,
   });
 

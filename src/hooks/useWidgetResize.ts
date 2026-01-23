@@ -7,7 +7,8 @@ interface ResizeState {
   isResizing: boolean;
   edge: ResizeEdge | null;
   startPosition: GridPosition | null;
-  startSize: WidgetSize | null;
+  startCols: number;
+  startRows: number;
   previewPosition: GridPosition | null;
   previewCols: number;
   previewRows: number;
@@ -17,15 +18,17 @@ interface UseWidgetResizeProps {
   widgetId: string;
   position: GridPosition;
   size: WidgetSize;
+  customCols?: number;
+  customRows?: number;
   occupiedCells: Set<string>;
   gridCols: number;
   gridRows: number;
   gridRef: React.RefObject<HTMLDivElement>;
-  onResize: (newSize: WidgetSize, newPosition: GridPosition) => void;
+  onResize: (newSize: WidgetSize, newPosition: GridPosition, customCols: number, customRows: number) => void;
   isEditMode: boolean;
 }
 
-// Convert dimensions to a valid WidgetSize
+// Convert dimensions to a WidgetSize string (for backward compatibility)
 const dimensionsToSize = (cols: number, rows: number): WidgetSize => {
   if (cols >= 2 && rows >= 2) return "2x2";
   if (cols >= 2) return "2x1";
@@ -36,6 +39,8 @@ const dimensionsToSize = (cols: number, rows: number): WidgetSize => {
 export const useWidgetResize = ({
   position,
   size,
+  customCols,
+  customRows,
   occupiedCells,
   gridCols,
   gridRows,
@@ -43,12 +48,16 @@ export const useWidgetResize = ({
   onResize,
   isEditMode,
 }: UseWidgetResizeProps) => {
+  // Get actual dimensions
+  const { cols: currentCols, rows: currentRows } = getWidgetDimensions(size, customCols, customRows);
+
   // ========== 1. useState ==========
   const [resizeState, setResizeState] = useState<ResizeState>({
     isResizing: false,
     edge: null,
     startPosition: null,
-    startSize: null,
+    startCols: 0,
+    startRows: 0,
     previewPosition: null,
     previewCols: 0,
     previewRows: 0,
@@ -60,15 +69,14 @@ export const useWidgetResize = ({
 
   // ========== 3. useMemo (selfCells) ==========
   const selfCells = useMemo(() => {
-    const { cols, rows } = getWidgetDimensions(size);
     const set = new Set<string>();
-    for (let r = position.row; r < position.row + rows; r++) {
-      for (let c = position.col; c < position.col + cols; c++) {
+    for (let r = position.row; r < position.row + currentRows; r++) {
+      for (let c = position.col; c < position.col + currentCols; c++) {
         set.add(`${c},${r}`);
       }
     }
     return set;
-  }, [position.col, position.row, size]);
+  }, [position.col, position.row, currentCols, currentRows]);
 
   // ========== 4. useCallback (getCellDimensions) ==========
   const getCellDimensions = useCallback(() => {
@@ -118,21 +126,20 @@ export const useWidgetResize = ({
         // no-op
       }
 
-      const { cols, rows } = getWidgetDimensions(size);
-
       initialPointerRef.current = { x: e.clientX, y: e.clientY };
 
       setResizeState({
         isResizing: true,
         edge,
         startPosition: position,
-        startSize: size,
+        startCols: currentCols,
+        startRows: currentRows,
         previewPosition: position,
-        previewCols: cols,
-        previewRows: rows,
+        previewCols: currentCols,
+        previewRows: currentRows,
       });
     },
-    [isEditMode, position, size]
+    [isEditMode, position, currentCols, currentRows]
   );
 
   // ========== 7. useEffect (sync resizeStateRef) ==========
@@ -146,7 +153,7 @@ export const useWidgetResize = ({
 
     const handlePointerMove = (e: PointerEvent) => {
       const state = resizeStateRef.current;
-      if (!state.isResizing || !state.startPosition || !state.startSize) return;
+      if (!state.isResizing || !state.startPosition) return;
       if (!initialPointerRef.current) return;
 
       const { cellWidth, cellHeight } = getCellDimensions();
@@ -158,7 +165,8 @@ export const useWidgetResize = ({
       const deltaCols = Math.round(deltaX / cellWidth);
       const deltaRows = Math.round(deltaY / cellHeight);
 
-      const { cols: startCols, rows: startRows } = getWidgetDimensions(state.startSize);
+      const startCols = state.startCols;
+      const startRows = state.startRows;
       const edge = state.edge;
 
       let newCol = state.startPosition.col;
@@ -167,68 +175,78 @@ export const useWidgetResize = ({
       let newRows = startRows;
 
       // Calculate new dimensions based on which edge is being dragged
+      // For right/bottom: positive delta = grow
+      // For left/top: positive delta = shrink (negative = grow)
+      
+      // Maximum bounds based on grid size
+      const maxColsRight = gridCols - state.startPosition.col;
+      const maxRowsBottom = gridRows - state.startPosition.row;
+
       switch (edge) {
         case "right":
-          newCols = Math.max(1, Math.min(2, startCols + deltaCols));
+          newCols = Math.max(1, Math.min(maxColsRight, startCols + deltaCols));
           break;
         case "left": {
-          const leftDelta = Math.max(
-            -state.startPosition.col,
-            Math.min(startCols - 1, -deltaCols)
-          );
-          newCol = state.startPosition.col - leftDelta;
-          newCols = Math.max(1, Math.min(2, startCols + leftDelta));
+          // Dragging left: negative deltaCols = grow left, positive = shrink
+          const colChange = -deltaCols; // Invert: drag left (negative delta) should grow
+          const maxGrow = state.startPosition.col; // Can't go past column 0
+          const maxShrink = startCols - 1; // Must keep at least 1 column
+          const clampedChange = Math.max(-maxShrink, Math.min(maxGrow, colChange));
+          newCol = state.startPosition.col - clampedChange;
+          newCols = startCols + clampedChange;
           break;
         }
         case "bottom":
-          newRows = Math.max(1, Math.min(2, startRows + deltaRows));
+          newRows = Math.max(1, Math.min(maxRowsBottom, startRows + deltaRows));
           break;
         case "top": {
-          const topDelta = Math.max(
-            -state.startPosition.row,
-            Math.min(startRows - 1, -deltaRows)
-          );
-          newRow = state.startPosition.row - topDelta;
-          newRows = Math.max(1, Math.min(2, startRows + topDelta));
+          // Dragging top: negative deltaRows = grow up, positive = shrink
+          const rowChange = -deltaRows;
+          const maxGrow = state.startPosition.row;
+          const maxShrink = startRows - 1;
+          const clampedChange = Math.max(-maxShrink, Math.min(maxGrow, rowChange));
+          newRow = state.startPosition.row - clampedChange;
+          newRows = startRows + clampedChange;
           break;
         }
         case "bottom-right":
-          newCols = Math.max(1, Math.min(2, startCols + deltaCols));
-          newRows = Math.max(1, Math.min(2, startRows + deltaRows));
+          newCols = Math.max(1, Math.min(maxColsRight, startCols + deltaCols));
+          newRows = Math.max(1, Math.min(maxRowsBottom, startRows + deltaRows));
           break;
         case "bottom-left": {
-          const blLeftDelta = Math.max(
-            -state.startPosition.col,
-            Math.min(startCols - 1, -deltaCols)
-          );
-          newCol = state.startPosition.col - blLeftDelta;
-          newCols = Math.max(1, Math.min(2, startCols + blLeftDelta));
-          newRows = Math.max(1, Math.min(2, startRows + deltaRows));
+          const colChange = -deltaCols;
+          const maxGrow = state.startPosition.col;
+          const maxShrink = startCols - 1;
+          const clampedChange = Math.max(-maxShrink, Math.min(maxGrow, colChange));
+          newCol = state.startPosition.col - clampedChange;
+          newCols = startCols + clampedChange;
+          newRows = Math.max(1, Math.min(maxRowsBottom, startRows + deltaRows));
           break;
         }
         case "top-right": {
-          const trTopDelta = Math.max(
-            -state.startPosition.row,
-            Math.min(startRows - 1, -deltaRows)
-          );
-          newRow = state.startPosition.row - trTopDelta;
-          newRows = Math.max(1, Math.min(2, startRows + trTopDelta));
-          newCols = Math.max(1, Math.min(2, startCols + deltaCols));
+          const rowChange = -deltaRows;
+          const maxGrow = state.startPosition.row;
+          const maxShrink = startRows - 1;
+          const clampedChange = Math.max(-maxShrink, Math.min(maxGrow, rowChange));
+          newRow = state.startPosition.row - clampedChange;
+          newRows = startRows + clampedChange;
+          newCols = Math.max(1, Math.min(maxColsRight, startCols + deltaCols));
           break;
         }
         case "top-left": {
-          const tlLeftDelta = Math.max(
-            -state.startPosition.col,
-            Math.min(startCols - 1, -deltaCols)
-          );
-          const tlTopDelta = Math.max(
-            -state.startPosition.row,
-            Math.min(startRows - 1, -deltaRows)
-          );
-          newCol = state.startPosition.col - tlLeftDelta;
-          newRow = state.startPosition.row - tlTopDelta;
-          newCols = Math.max(1, Math.min(2, startCols + tlLeftDelta));
-          newRows = Math.max(1, Math.min(2, startRows + tlTopDelta));
+          const colChange = -deltaCols;
+          const maxColGrow = state.startPosition.col;
+          const maxColShrink = startCols - 1;
+          const clampedColChange = Math.max(-maxColShrink, Math.min(maxColGrow, colChange));
+          newCol = state.startPosition.col - clampedColChange;
+          newCols = startCols + clampedColChange;
+
+          const rowChange = -deltaRows;
+          const maxRowGrow = state.startPosition.row;
+          const maxRowShrink = startRows - 1;
+          const clampedRowChange = Math.max(-maxRowShrink, Math.min(maxRowGrow, rowChange));
+          newRow = state.startPosition.row - clampedRowChange;
+          newRows = startRows + clampedRowChange;
           break;
         }
       }
@@ -250,14 +268,15 @@ export const useWidgetResize = ({
 
       if (state.previewPosition && state.previewCols > 0 && state.previewRows > 0) {
         const newSize = dimensionsToSize(state.previewCols, state.previewRows);
-        onResize(newSize, state.previewPosition);
+        onResize(newSize, state.previewPosition, state.previewCols, state.previewRows);
       }
 
       setResizeState({
         isResizing: false,
         edge: null,
         startPosition: null,
-        startSize: null,
+        startCols: 0,
+        startRows: 0,
         previewPosition: null,
         previewCols: 0,
         previewRows: 0,
@@ -276,7 +295,7 @@ export const useWidgetResize = ({
       document.removeEventListener("pointerup", handlePointerUp, { capture: true });
       document.removeEventListener("pointercancel", handlePointerUp, { capture: true });
     };
-  }, [resizeState.isResizing, getCellDimensions, canResizeTo, onResize]);
+  }, [resizeState.isResizing, getCellDimensions, canResizeTo, onResize, gridCols, gridRows]);
 
   return {
     resizeState,

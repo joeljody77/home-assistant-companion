@@ -4,6 +4,8 @@ import { cn } from "@/lib/utils";
 interface DragPreviewOverlayProps {
   hoveredCell: GridPosition;
   widgetSize: WidgetSize;
+  customCols?: number;
+  customRows?: number;
   occupiedCells: Set<string>;
   gridCols: number;
   gridRows: number;
@@ -12,11 +14,13 @@ interface DragPreviewOverlayProps {
 export const DragPreviewOverlay = ({
   hoveredCell,
   widgetSize,
+  customCols,
+  customRows,
   occupiedCells,
   gridCols,
   gridRows,
 }: DragPreviewOverlayProps) => {
-  const { cols, rows } = getWidgetDimensions(widgetSize);
+  const { cols, rows } = getWidgetDimensions(widgetSize, customCols, customRows);
   
   // Only show preview for multi-cell widgets
   const isMultiCell = cols > 1 || rows > 1;
@@ -27,7 +31,7 @@ export const DragPreviewOverlay = ({
     hoveredCell.col + cols <= gridCols && 
     hoveredCell.row + rows <= gridRows;
   
-  const previewCells = getOccupiedCells(hoveredCell, widgetSize);
+  const previewCells = getOccupiedCells(hoveredCell, widgetSize, customCols, customRows);
   const hasCollision = previewCells.some(cell => occupiedCells.has(cell));
   
   const isValid = isWithinBounds && !hasCollision;

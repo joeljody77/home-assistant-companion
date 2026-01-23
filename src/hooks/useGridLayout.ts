@@ -14,6 +14,9 @@ export interface WidgetConfig {
   props: Record<string, unknown>;
   size: WidgetSize;
   position?: GridPosition; // Optional - will be auto-assigned if not set
+  // Custom dimensions that override the size-based defaults (for arbitrary sizing)
+  customCols?: number;
+  customRows?: number;
 }
 
 const defaultWidgets: WidgetConfig[] = [
@@ -63,8 +66,14 @@ const saveLayout = (widgets: WidgetConfig[]) => {
   }
 };
 
-// Get widget dimensions from size
-export const getWidgetDimensions = (size: WidgetSize): { cols: number; rows: number } => {
+// Get widget dimensions from size or custom dimensions
+export const getWidgetDimensions = (size: WidgetSize, customCols?: number, customRows?: number): { cols: number; rows: number } => {
+  // If custom dimensions are provided, use them
+  if (customCols !== undefined && customRows !== undefined) {
+    return { cols: customCols, rows: customRows };
+  }
+  
+  // Fall back to size-based dimensions
   switch (size) {
     case "2x1":
       return { cols: 2, rows: 1 };
@@ -84,9 +93,11 @@ export const canPlaceWidget = (
   occupiedCells: Set<string>,
   gridCols: number,
   gridRows: number,
-  excludeWidgetId?: string
+  excludeWidgetId?: string,
+  customCols?: number,
+  customRows?: number
 ): boolean => {
-  const { cols, rows } = getWidgetDimensions(size);
+  const { cols, rows } = getWidgetDimensions(size, customCols, customRows);
   
   // Check bounds
   if (position.col < 0 || position.row < 0) return false;
@@ -107,8 +118,8 @@ export const canPlaceWidget = (
 };
 
 // Get all cells occupied by a widget
-export const getOccupiedCells = (position: GridPosition, size: WidgetSize): string[] => {
-  const { cols, rows } = getWidgetDimensions(size);
+export const getOccupiedCells = (position: GridPosition, size: WidgetSize, customCols?: number, customRows?: number): string[] => {
+  const { cols, rows } = getWidgetDimensions(size, customCols, customRows);
   const cells: string[] = [];
   
   for (let r = position.row; r < position.row + rows; r++) {
@@ -125,9 +136,11 @@ const isPositionValid = (
   position: GridPosition,
   size: WidgetSize,
   gridCols: number,
-  gridRows: number
+  gridRows: number,
+  customCols?: number,
+  customRows?: number
 ): boolean => {
-  const { cols, rows } = getWidgetDimensions(size);
+  const { cols, rows } = getWidgetDimensions(size, customCols, customRows);
   return (
     position.col >= 0 &&
     position.row >= 0 &&
@@ -151,7 +164,7 @@ export const autoPlaceWidgets = (
   const widgetsNeedingPlacement: WidgetConfig[] = [];
   
   for (const widget of widgets) {
-    if (widget.position && isPositionValid(widget.position, widget.size, gridCols, gridRows)) {
+    if (widget.position && isPositionValid(widget.position, widget.size, gridCols, gridRows, widget.customCols, widget.customRows)) {
       widgetsWithValidPositions.push(widget);
     } else {
       widgetsNeedingPlacement.push(widget);
@@ -163,9 +176,9 @@ export const autoPlaceWidgets = (
     const position = widget.position!;
     
     // Check if it fits on current page without overlap
-    if (canPlaceWidget(position, widget.size, occupiedCells, gridCols, gridRows)) {
+    if (canPlaceWidget(position, widget.size, occupiedCells, gridCols, gridRows, undefined, widget.customCols, widget.customRows)) {
       currentPage.push({ ...widget, position });
-      getOccupiedCells(position, widget.size).forEach(cell => occupiedCells.add(cell));
+      getOccupiedCells(position, widget.size, widget.customCols, widget.customRows).forEach(cell => occupiedCells.add(cell));
     } else {
       // Position conflicts - needs re-placement
       widgetsNeedingPlacement.push({ ...widget, position: undefined });
@@ -174,16 +187,16 @@ export const autoPlaceWidgets = (
   
   // Then, auto-place widgets that need positions
   for (const widget of widgetsNeedingPlacement) {
-    const { cols, rows } = getWidgetDimensions(widget.size);
+    const { cols, rows } = getWidgetDimensions(widget.size, widget.customCols, widget.customRows);
     let placed = false;
     
     // Try to find a position on the current page
     for (let row = 0; row <= gridRows - rows && !placed; row++) {
       for (let col = 0; col <= gridCols - cols && !placed; col++) {
         const position = { col, row };
-        if (canPlaceWidget(position, widget.size, occupiedCells, gridCols, gridRows)) {
+        if (canPlaceWidget(position, widget.size, occupiedCells, gridCols, gridRows, undefined, widget.customCols, widget.customRows)) {
           currentPage.push({ ...widget, position });
-          getOccupiedCells(position, widget.size).forEach(cell => occupiedCells.add(cell));
+          getOccupiedCells(position, widget.size, widget.customCols, widget.customRows).forEach(cell => occupiedCells.add(cell));
           placed = true;
         }
       }
@@ -200,7 +213,7 @@ export const autoPlaceWidgets = (
       // Place at the beginning of the new page
       const position = { col: 0, row: 0 };
       currentPage.push({ ...widget, position });
-      getOccupiedCells(position, widget.size).forEach(cell => occupiedCells.add(cell));
+      getOccupiedCells(position, widget.size, widget.customCols, widget.customRows).forEach(cell => occupiedCells.add(cell));
     }
   }
   
@@ -225,7 +238,7 @@ export const getPageOccupiedCells = (
     if (widget.id === excludeWidgetId) continue;
     if (!widget.position) continue;
     
-    getOccupiedCells(widget.position, widget.size).forEach(cell => occupied.add(cell));
+    getOccupiedCells(widget.position, widget.size, widget.customCols, widget.customRows).forEach(cell => occupied.add(cell));
   }
   
   return occupied;
@@ -237,7 +250,9 @@ const findNearestEmptyPosition = (
   size: WidgetSize,
   occupiedCellsSet: Set<string>,
   gridCols: number,
-  gridRows: number
+  gridRows: number,
+  customCols?: number,
+  customRows?: number
 ): GridPosition | null => {
   // Search in expanding rings around the target position
   for (let distance = 0; distance < Math.max(gridCols, gridRows); distance++) {
@@ -251,7 +266,7 @@ const findNearestEmptyPosition = (
           row: targetPosition.row + dy,
         };
         
-        if (canPlaceWidget(testPos, size, occupiedCellsSet, gridCols, gridRows)) {
+        if (canPlaceWidget(testPos, size, occupiedCellsSet, gridCols, gridRows, undefined, customCols, customRows)) {
           return testPos;
         }
       }
@@ -305,7 +320,7 @@ export const useGridLayout = (density: DensityPreset) => {
       if (widgetIndex === -1) return currentWidgets;
       
       const widget = currentWidgets[widgetIndex];
-      const { cols, rows } = getWidgetDimensions(widget.size);
+      const { cols, rows } = getWidgetDimensions(widget.size, widget.customCols, widget.customRows);
       
       // Get current page widgets excluding the dragged widget
       const currentPageWidgets = pages[currentPage] || [];
@@ -330,14 +345,16 @@ export const useGridLayout = (density: DensityPreset) => {
       }
       
       // Check if the position is available
-      if (!canPlaceWidget(finalPosition, widget.size, occupiedCellsSet, density.columns, density.rows)) {
+      if (!canPlaceWidget(finalPosition, widget.size, occupiedCellsSet, density.columns, density.rows, undefined, widget.customCols, widget.customRows)) {
         // Find nearest empty spot
         const nearestPos = findNearestEmptyPosition(
           finalPosition,
           widget.size,
           occupiedCellsSet,
           density.columns,
-          density.rows
+          density.rows,
+          widget.customCols,
+          widget.customRows
         );
         
         if (nearestPos) {
@@ -359,11 +376,17 @@ export const useGridLayout = (density: DensityPreset) => {
     });
   }, [density.columns, density.rows, pages, currentPage]);
 
-  const resizeWidget = useCallback((widgetId: string, newSize: WidgetSize, newPosition?: GridPosition) => {
+  const resizeWidget = useCallback((widgetId: string, newSize: WidgetSize, newPosition?: GridPosition, customCols?: number, customRows?: number) => {
     setWidgets((items) => {
       const newItems = items.map((item) =>
         item.id === widgetId 
-          ? { ...item, size: newSize, ...(newPosition && { position: newPosition }) } 
+          ? { 
+              ...item, 
+              size: newSize, 
+              ...(newPosition && { position: newPosition }),
+              customCols,
+              customRows,
+            } 
           : item
       );
       saveLayout(newItems);
