@@ -171,6 +171,16 @@ export const autoPlaceWidgets = (
     }
   }
   
+  // Sort positioned widgets by their grid position (top-left to bottom-right)
+  // This ensures deterministic conflict resolution regardless of array order
+  widgetsWithValidPositions.sort((a, b) => {
+    const aPos = a.position!;
+    const bPos = b.position!;
+    const aIndex = aPos.row * gridCols + aPos.col;
+    const bIndex = bPos.row * gridCols + bPos.col;
+    return aIndex - bIndex;
+  });
+  
   // First, place widgets that already have valid positions
   for (const widget of widgetsWithValidPositions) {
     const position = widget.position!;
@@ -365,14 +375,13 @@ export const useGridLayout = (density: DensityPreset) => {
         }
       }
       
-      // Move the widget to the final position
+      // Move the widget to the final position (don't reorder array to keep positions stable)
       const newWidgets = currentWidgets.map(w => 
         w.id === widgetId ? { ...w, position: finalPosition } : w
       );
       
-      const reorderedWidgets = reorderWidgetsByPosition(newWidgets, density.columns, density.rows);
-      saveLayout(reorderedWidgets);
-      return reorderedWidgets;
+      saveLayout(newWidgets);
+      return newWidgets;
     });
   }, [density.columns, density.rows, pages, currentPage]);
 
