@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   DndContext,
   closestCenter,
@@ -18,16 +18,41 @@ import { Header } from "@/components/layout/Header";
 import { RoomTabs } from "@/components/layout/RoomTabs";
 import { DraggableWidget } from "@/components/widgets/DraggableWidget";
 import { WidgetRenderer } from "@/components/widgets/WidgetRenderer";
-import { useWidgetLayout } from "@/hooks/useWidgetLayout";
+import { useWidgetLayout, calculatePageWidgets } from "@/hooks/useWidgetLayout";
+import { useDensityConfig } from "@/hooks/useDensityConfig";
+import { DensitySettingsDialog } from "@/components/DensitySettingsDialog";
+import { PageIndicator } from "@/components/PageIndicator";
 import { Button } from "@/components/ui/button";
-import { Pencil, RotateCcw, Check } from "lucide-react";
+import { Pencil, RotateCcw, Check, Grid3X3 } from "lucide-react";
 
 const rooms = ["All Rooms", "Living Room", "Bedroom", "Kitchen", "Bathroom", "Office"];
 
 const Index = () => {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [activeRoom, setActiveRoom] = useState("All Rooms");
+  const [currentPage, setCurrentPage] = useState(0);
+  const [densityDialogOpen, setDensityDialogOpen] = useState(false);
+  
   const { widgets, isEditMode, handleDragEnd, toggleEditMode, resetLayout, resizeWidget } = useWidgetLayout();
+  const { presetIndex, currentPreset, setDensity } = useDensityConfig();
+
+  // Calculate which widgets fit on the current page
+  const { pageWidgets, totalPages } = useMemo(() => {
+    return calculatePageWidgets(widgets, currentPreset, currentPage);
+  }, [widgets, currentPreset, currentPage]);
+
+  // Ensure current page is valid when widgets or density changes
+  const validatedPage = useMemo(() => {
+    const maxPage = Math.max(0, totalPages - 1);
+    return currentPage > maxPage ? maxPage : currentPage;
+  }, [totalPages, currentPage]);
+  
+  // Reset page when it becomes invalid
+  useMemo(() => {
+    if (validatedPage !== currentPage) {
+      setCurrentPage(validatedPage);
+    }
+  }, [validatedPage, currentPage]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -47,47 +72,61 @@ const Index = () => {
     });
   };
 
+  // Use the density preset columns and rows directly for the grid
+  const displayColumns = currentPreset.columns;
+  const displayRows = currentPreset.rows;
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-screen bg-background overflow-hidden flex flex-col">
       <Sidebar activeSection={activeSection} onSectionChange={setActiveSection} />
       
-      <main className="ml-20 p-6 animate-fade-in">
-        <div className="flex items-center justify-between mb-4">
-          <Header title="Dashboard" isConnected={true} />
-          <div className="flex items-center gap-2">
-            {isEditMode && (
+      <main className="ml-20 flex-1 flex flex-col overflow-hidden">
+        {/* Header Section */}
+        <div className="flex-shrink-0 px-6 pt-4 pb-2">
+          <div className="flex items-center justify-between mb-3">
+            <Header title="Dashboard" isConnected={true} />
+            <div className="flex items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
-                onClick={resetLayout}
+                onClick={() => setDensityDialogOpen(true)}
                 className="gap-2"
               >
-                <RotateCcw className="w-4 h-4" />
-                Reset
+                <Grid3X3 className="w-4 h-4" />
+                Density
               </Button>
-            )}
-            <Button
-              variant={isEditMode ? "default" : "outline"}
-              size="sm"
-              onClick={toggleEditMode}
-              className="gap-2"
-            >
-              {isEditMode ? (
-                <>
-                  <Check className="w-4 h-4" />
-                  Done
-                </>
-              ) : (
-                <>
-                  <Pencil className="w-4 h-4" />
-                  Edit Layout
-                </>
+              {isEditMode && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={resetLayout}
+                  className="gap-2"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Reset
+                </Button>
               )}
-            </Button>
+              <Button
+                variant={isEditMode ? "default" : "outline"}
+                size="sm"
+                onClick={toggleEditMode}
+                className="gap-2"
+              >
+                {isEditMode ? (
+                  <>
+                    <Check className="w-4 h-4" />
+                    Done
+                  </>
+                ) : (
+                  <>
+                    <Pencil className="w-4 h-4" />
+                    Edit Layout
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
-        </div>
-        
-        <div className="mb-6">
+          
           <RoomTabs
             rooms={rooms}
             activeRoom={activeRoom}
@@ -95,29 +134,53 @@ const Index = () => {
           />
         </div>
 
-        {/* Widget Grid */}
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={onDragEnd}
-        >
-          <SortableContext items={widgets.map(w => w.id)} strategy={rectSortingStrategy}>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 auto-rows-[minmax(140px,auto)]">
-              {widgets.map((widget) => (
-                <DraggableWidget 
-                  key={widget.id} 
-                  id={widget.id} 
-                  isEditMode={isEditMode}
-                  size={widget.size}
-                  onResize={(newSize) => resizeWidget(widget.id, newSize)}
-                >
-                  <WidgetRenderer widget={widget} />
-                </DraggableWidget>
-              ))}
-            </div>
-          </SortableContext>
-        </DndContext>
+        {/* Widget Grid - Fills remaining viewport height */}
+        <div className="flex-1 px-6 pb-16 overflow-hidden">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={onDragEnd}
+          >
+            <SortableContext items={pageWidgets.map(w => w.id)} strategy={rectSortingStrategy}>
+              <div 
+                className="h-full grid gap-3 animate-fade-in"
+                style={{
+                  gridTemplateColumns: `repeat(${displayColumns}, minmax(0, 1fr))`,
+                  gridTemplateRows: `repeat(${displayRows}, minmax(0, 1fr))`,
+                }}
+              >
+                {pageWidgets.map((widget) => (
+                  <DraggableWidget 
+                    key={widget.id} 
+                    id={widget.id} 
+                    isEditMode={isEditMode}
+                    size={widget.size}
+                    onResize={(newSize) => resizeWidget(widget.id, newSize)}
+                  >
+                    <WidgetRenderer widget={widget} />
+                  </DraggableWidget>
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        </div>
+
+        {/* Page Indicator */}
+        <PageIndicator
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+        />
       </main>
+
+      {/* Density Settings Dialog */}
+      <DensitySettingsDialog
+        open={densityDialogOpen}
+        onOpenChange={setDensityDialogOpen}
+        presetIndex={presetIndex}
+        onPresetChange={setDensity}
+        currentPreset={currentPreset}
+      />
     </div>
   );
 };

@@ -1,5 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { arrayMove } from "@dnd-kit/sortable";
+import { DensityPreset, getWidgetCellCount } from "./useDensityConfig";
 
 export type WidgetSize = "1x1" | "2x1" | "1x2" | "2x2";
 
@@ -68,6 +69,46 @@ export const getGridClasses = (size: WidgetSize): string => {
     default:
       return "";
   }
+};
+
+// Calculate widgets that fit on a page given the density
+export const calculatePageWidgets = (
+  widgets: WidgetConfig[],
+  density: DensityPreset,
+  pageIndex: number
+): { pageWidgets: WidgetConfig[]; totalPages: number } => {
+  const maxCells = density.columns * density.rows;
+  
+  // We need to pack widgets into pages
+  const pages: WidgetConfig[][] = [];
+  let currentPage: WidgetConfig[] = [];
+  let currentCells = 0;
+
+  for (const widget of widgets) {
+    const cells = getWidgetCellCount(widget.size);
+    
+    if (currentCells + cells > maxCells) {
+      // Start a new page
+      if (currentPage.length > 0) {
+        pages.push(currentPage);
+      }
+      currentPage = [widget];
+      currentCells = cells;
+    } else {
+      currentPage.push(widget);
+      currentCells += cells;
+    }
+  }
+
+  // Push the last page if it has widgets
+  if (currentPage.length > 0) {
+    pages.push(currentPage);
+  }
+
+  return {
+    pageWidgets: pages[pageIndex] || [],
+    totalPages: Math.max(1, pages.length),
+  };
 };
 
 export const useWidgetLayout = () => {
