@@ -15,7 +15,7 @@ export const PageIndicator = ({
   if (totalPages <= 1) return null;
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-card/90 backdrop-blur-sm px-4 py-2 rounded-full border border-border shadow-lg z-50">
+    <div className="fixed bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-card/80 backdrop-blur-sm px-4 py-1.5 rounded-full border border-border shadow-lg z-50">
       <button
         onClick={() => onPageChange(Math.max(0, currentPage - 1))}
         disabled={currentPage === 0}

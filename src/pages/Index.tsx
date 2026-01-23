@@ -39,7 +39,7 @@ const Index = () => {
       
       <main className="ml-20 flex-1 flex flex-col overflow-hidden">
         {/* Widget Grid - Fills entire viewport */}
-        <div className="flex-1 p-4 pb-16 overflow-hidden">
+        <div className="flex-1 p-4 overflow-hidden">
           <WidgetGrid
             widgets={pageWidgets}
             isEditMode={isEditMode}
