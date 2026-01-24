@@ -18,6 +18,7 @@ const MIN_TEMP = 16;
 const MAX_TEMP = 30;
 
 type ClimateMode = "off" | "cool" | "heat" | "fan_only" | "dry" | "auto";
+type FanSpeed = "auto" | "high" | "medium" | "low";
 
 const MODE_CONFIG: { mode: ClimateMode; icon: typeof Power; label: string }[] = [
   { mode: "off", icon: Power, label: "Off" },
@@ -25,6 +26,13 @@ const MODE_CONFIG: { mode: ClimateMode; icon: typeof Power; label: string }[] = 
   { mode: "heat", icon: Flame, label: "Heat" },
   { mode: "fan_only", icon: Fan, label: "Fan" },
   { mode: "dry", icon: Droplets, label: "Dry" },
+];
+
+const FAN_SPEED_CONFIG: { speed: FanSpeed; label: string }[] = [
+  { speed: "auto", label: "Auto" },
+  { speed: "high", label: "High" },
+  { speed: "medium", label: "Med" },
+  { speed: "low", label: "Low" },
 ];
 
 export const ClimateWidget = ({
@@ -38,6 +46,7 @@ export const ClimateWidget = ({
 }: ClimateWidgetProps) => {
   const [localTargetTemp, setLocalTargetTemp] = useState(initialTarget);
   const [localMode, setLocalMode] = useState<ClimateMode>(initialMode);
+  const [localFanSpeed, setLocalFanSpeed] = useState<FanSpeed>("auto");
   const { cols, rows, isCompact } = useWidgetSize();
   const { getEntity, callService, isConnected } = useHomeAssistantContext();
 
@@ -48,6 +57,7 @@ export const ClimateWidget = ({
   const haTargetTemp = entity?.attributes?.temperature as number | undefined;
   const haHumidity = entity?.attributes?.current_humidity as number | undefined;
   const haMode = entity?.state as ClimateMode | undefined;
+  const haFanMode = entity?.attributes?.fan_mode as FanSpeed | undefined;
 
   const currentTemp = resolvedEntityId && isConnected && entity && haCurrentTemp !== undefined
     ? haCurrentTemp
@@ -61,6 +71,9 @@ export const ClimateWidget = ({
   const mode = resolvedEntityId && isConnected && entity && haMode
     ? haMode
     : localMode;
+  const fanSpeed = resolvedEntityId && isConnected && entity && haFanMode
+    ? haFanMode
+    : localFanSpeed;
 
   const isActive = mode !== "off";
 
@@ -82,6 +95,16 @@ export const ClimateWidget = ({
       });
     } else {
       setLocalMode(newMode);
+    }
+  }, [resolvedEntityId, isConnected, callService]);
+
+  const setFanSpeed = useCallback(async (newSpeed: FanSpeed) => {
+    if (resolvedEntityId && isConnected) {
+      await callService("climate", "set_fan_mode", resolvedEntityId, {
+        fan_mode: newSpeed
+      });
+    } else {
+      setLocalFanSpeed(newSpeed);
     }
   }, [resolvedEntityId, isConnected, callService]);
 
@@ -400,28 +423,60 @@ export const ClimateWidget = ({
         </div>
       )}
 
-      {/* Auto dropdown bar (shown on larger widgets) */}
+      {/* Fan speed buttons (shown on larger widgets) */}
       {rows >= 3 && cols >= 2 && (
-        <div
-          className="mx-3 mb-3 flex items-center gap-2 px-3 py-2 rounded-lg"
-          style={{
-            background: `linear-gradient(180deg, hsl(220 10% 12%) 0%, hsl(220 10% 8%) 100%)`,
-            boxShadow: `
-              inset 0 1px 2px 0 hsl(0 0% 0% / 0.3),
-              0 1px 0 0 hsl(220 10% 18% / 0.15)
-            `,
-          }}
-        >
-          <Fan className="w-4 h-4 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground flex-1">Auto</span>
-          <svg 
-            className="w-3 h-3 text-muted-foreground" 
-            fill="none" 
-            viewBox="0 0 24 24" 
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
+        <div className="mx-3 mb-3 flex items-center gap-2">
+          {FAN_SPEED_CONFIG.map(({ speed, label }) => {
+            const isSelected = fanSpeed === speed;
+            return (
+              <button
+                key={speed}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFanSpeed(speed);
+                }}
+                className="flex-1 flex items-center justify-center py-2 transition-all relative active:scale-95"
+                style={{
+                  height: '36px',
+                  borderRadius: '8px',
+                  background: isSelected 
+                    ? `linear-gradient(180deg, hsl(220 10% 18%) 0%, hsl(220 10% 12%) 100%)`
+                    : `linear-gradient(180deg, hsl(220 10% 12%) 0%, hsl(220 10% 8%) 100%)`,
+                  boxShadow: isSelected
+                    ? `
+                        inset 0 1px 2px 0 hsl(220 10% 28% / 0.4),
+                        inset 0 -1px 1px 0 hsl(0 0% 0% / 0.3),
+                        0 0 12px 2px ${glow(0.25)},
+                        0 0 24px 4px ${glow(0.12)}
+                      `
+                    : `
+                        inset 0 1px 2px 0 hsl(0 0% 0% / 0.3),
+                        0 1px 0 0 hsl(220 10% 18% / 0.15)
+                      `,
+                }}
+              >
+                {/* Illumination glow behind text when selected */}
+                {isSelected && (
+                  <div
+                    className="absolute inset-0 pointer-events-none"
+                    style={{
+                      borderRadius: '8px',
+                      background: `radial-gradient(ellipse at 50% 50%, ${glow(0.2)} 0%, transparent 70%)`,
+                    }}
+                  />
+                )}
+                <span
+                  className="text-xs font-medium relative z-10 transition-all"
+                  style={{
+                    color: isSelected ? accentColor : 'hsl(var(--muted-foreground))',
+                    textShadow: isSelected ? `0 0 8px ${glow(0.6)}` : 'none',
+                  }}
+                >
+                  {label}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
