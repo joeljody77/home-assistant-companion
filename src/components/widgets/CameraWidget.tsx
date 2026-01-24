@@ -1,17 +1,18 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Camera, Maximize2, Video, Image, RefreshCw } from "lucide-react";
+import { Camera, Maximize2, Video, Image, RefreshCw, Wifi, WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWidgetSize } from "@/contexts/WidgetSizeContext";
 import { useHomeAssistantContext } from "@/contexts/HomeAssistantContext";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { useWebRTC, WebRTCStatus } from "@/hooks/useWebRTC";
 
 interface CameraWidgetProps {
   name: string;
   room?: string;
   entityId?: string;
   entity_id?: string;
-  /** 'snapshot' shows a still image (tap to expand), 'live' shows fast-refreshing stream */
-  viewMode?: "snapshot" | "live";
+  /** 'snapshot' shows a still image, 'live' uses snapshot polling, 'webrtc' uses WebRTC streaming */
+  viewMode?: "snapshot" | "live" | "webrtc";
   /** Refresh interval for snapshots in seconds (default: 10) */
   refreshInterval?: number;
   /** Live mode frames per second (default: 5, max 10) */
@@ -23,7 +24,7 @@ export const CameraWidget = ({
   room,
   entityId,
   entity_id,
-  viewMode = "snapshot",
+  viewMode = "webrtc",
   refreshInterval = 10,
   liveFps = 5,
 }: CameraWidgetProps) => {
@@ -31,20 +32,30 @@ export const CameraWidget = ({
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [effectiveMode, setEffectiveMode] = useState<"snapshot" | "live" | "webrtc">(viewMode);
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isMountedRef = useRef(true);
   const previousBlobUrl = useRef<string | null>(null);
   
   const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
-  const { getEntity, isConnected, config } = useHomeAssistantContext();
+  const { getEntity, isConnected, config, wsRef, sendCommand } = useHomeAssistantContext();
 
   const resolvedEntityId = entityId ?? entity_id;
   const entity = resolvedEntityId ? getEntity(resolvedEntityId) : undefined;
   
   const isOnline = entity?.state !== "unavailable" && entity?.state !== "unknown";
+
+  // WebRTC hook
+  const webrtc = useWebRTC({
+    entityId: resolvedEntityId || "",
+    config,
+    wsRef,
+    sendCommand,
+    enabled: effectiveMode === "webrtc" && isConnected && !!resolvedEntityId,
+  });
   
   // Calculate actual refresh rate based on mode (live uses FPS, snapshot uses seconds)
-  const actualRefreshMs = viewMode === "live" 
+  const actualRefreshMs = effectiveMode === "live" 
     ? Math.max(100, Math.round(1000 / Math.min(10, liveFps))) // 100ms min (10fps max)
     : refreshInterval * 1000;
 
@@ -102,11 +113,26 @@ export const CameraWidget = ({
     }
   }, [config, resolvedEntityId, imageUrl]);
 
-  // Initial fetch and refresh timer
+  // Fallback to snapshot polling if WebRTC fails
+  useEffect(() => {
+    if (viewMode === "webrtc" && webrtc.status === "failed") {
+      console.log("WebRTC failed, falling back to live polling");
+      setEffectiveMode("live");
+    } else if (viewMode !== "webrtc") {
+      setEffectiveMode(viewMode);
+    }
+  }, [viewMode, webrtc.status]);
+
+  // Initial fetch and refresh timer (only for non-WebRTC modes)
   useEffect(() => {
     isMountedRef.current = true;
     
     if (!isConnected || !resolvedEntityId) {
+      return;
+    }
+
+    // WebRTC mode doesn't need snapshot polling
+    if (effectiveMode === "webrtc" && webrtc.status !== "failed") {
       return;
     }
 
@@ -123,7 +149,7 @@ export const CameraWidget = ({
         clearInterval(refreshTimerRef.current);
       }
     };
-  }, [isConnected, resolvedEntityId, viewMode, actualRefreshMs]);
+  }, [isConnected, resolvedEntityId, effectiveMode, actualRefreshMs, webrtc.status]);
 
   // Cleanup blob URL on unmount
   useEffect(() => {
@@ -153,6 +179,31 @@ export const CameraWidget = ({
   const subtitleSize = minDim >= 3 ? "text-base" : isLarge ? "text-sm" : "text-xs";
   const padding = minDim >= 3 ? "p-4" : isLarge ? "p-3" : "p-2";
 
+  // Get mode label
+  const getModeLabel = () => {
+    if (effectiveMode === "webrtc" && webrtc.status === "connected") return "WebRTC";
+    if (effectiveMode === "webrtc" && webrtc.status === "connecting") return "Connecting...";
+    if (effectiveMode === "live") return "Live";
+    return "Snapshot";
+  };
+
+  const getModeIcon = () => {
+    if (effectiveMode === "webrtc") {
+      return webrtc.status === "connected" ? (
+        <Wifi className="w-3 h-3 text-primary" />
+      ) : webrtc.status === "connecting" ? (
+        <Wifi className="w-3 h-3 text-muted-foreground animate-pulse" />
+      ) : (
+        <WifiOff className="w-3 h-3 text-muted-foreground" />
+      );
+    }
+    return effectiveMode === "live" ? (
+      <Video className="w-3 h-3 text-foreground/70" />
+    ) : (
+      <Image className="w-3 h-3 text-foreground/70" />
+    );
+  };
+
   // Render camera image/stream
   const renderCameraFeed = (isDialog = false) => {
     const containerClasses = isDialog 
@@ -170,7 +221,13 @@ export const CameraWidget = ({
       );
     }
 
-    if (hasError) {
+    // WebRTC error (but not in fallback mode)
+    if (effectiveMode === "webrtc" && webrtc.status === "failed" && viewMode === "webrtc") {
+      // Will fallback to live polling via useEffect
+    }
+
+    // Snapshot/Live polling error
+    if (hasError && effectiveMode !== "webrtc") {
       return (
         <div className={cn(containerClasses, "flex items-center justify-center bg-secondary")}>
           <div className="text-center">
@@ -183,6 +240,29 @@ export const CameraWidget = ({
               <RefreshCw className="w-4 h-4 text-foreground" />
             </button>
           </div>
+        </div>
+      );
+    }
+
+    // WebRTC mode
+    if (effectiveMode === "webrtc" && webrtc.status !== "failed") {
+      return (
+        <div className={cn(containerClasses, "bg-secondary")}>
+          <video
+            ref={webrtc.videoRef}
+            autoPlay
+            playsInline
+            muted
+            className="w-full h-full object-cover"
+          />
+          {webrtc.status === "connecting" && (
+            <div className="absolute inset-0 flex items-center justify-center bg-secondary/80">
+              <div className="text-center">
+                <Wifi className="w-8 h-8 mx-auto mb-2 text-primary animate-pulse" />
+                <p className="text-sm text-muted-foreground">Connecting WebRTC...</p>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
@@ -228,11 +308,7 @@ export const CameraWidget = ({
                   isOnline ? "status-online" : "status-offline"
                 )}
               />
-              {viewMode === "live" ? (
-                <Video className="w-3 h-3 text-foreground/70" />
-              ) : (
-                <Image className="w-3 h-3 text-foreground/70" />
-              )}
+              {getModeIcon()}
             </div>
 
             <div className="absolute bottom-2 left-2 right-2">
@@ -296,17 +372,13 @@ export const CameraWidget = ({
                 )}
               />
               <span className={cn("text-foreground/80 drop-shadow-md", subtitleSize)}>
-                {viewMode === "live" ? "Live" : "Snapshot"}
+                {getModeLabel()}
               </span>
-              {viewMode === "live" ? (
-                <Video className="w-4 h-4 text-foreground/70" />
-              ) : (
-                <Image className="w-4 h-4 text-foreground/70" />
-              )}
+              {getModeIcon()}
             </div>
 
             <div className={cn("absolute top-3 right-3 flex items-center gap-2", minDim >= 3 && "top-4 right-4")}>
-              {viewMode === "snapshot" && (
+              {effectiveMode !== "webrtc" && (
                 <button 
                   onClick={handleRefresh}
                   className={cn("p-2 rounded-lg bg-background/50 backdrop-blur-sm opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity", minDim >= 3 && "p-3")}
@@ -387,17 +459,13 @@ export const CameraWidget = ({
               )}
             />
             <span className={cn("text-foreground/80 drop-shadow-md", subtitleSize)}>
-              {viewMode === "live" ? "Live" : "Snapshot"}
+              {getModeLabel()}
             </span>
-            {viewMode === "live" ? (
-              <Video className="w-4 h-4 text-foreground/70" />
-            ) : (
-              <Image className="w-4 h-4 text-foreground/70" />
-            )}
+            {getModeIcon()}
           </div>
 
           <div className={cn("absolute flex items-center gap-2", padding, "top-0 right-0")}>
-            {viewMode === "snapshot" && (
+            {effectiveMode !== "webrtc" && (
               <button 
                 onClick={handleRefresh}
                 className={cn("p-2 rounded-lg bg-background/50 backdrop-blur-sm opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity", minDim >= 3 && "p-3")}
