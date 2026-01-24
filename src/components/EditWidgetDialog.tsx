@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EntityPicker } from "@/components/EntityPicker";
 import { useHomeAssistantContext } from "@/contexts/HomeAssistantContext";
 import { cn } from "@/lib/utils";
-import { Link2, Link2Off, Trash2, Video, Image } from "lucide-react";
+import { Link2, Link2Off, Trash2, Video, Image, Wifi } from "lucide-react";
 import { WidgetConfig } from "@/hooks/useGridLayout";
 
 interface EditWidgetDialogProps {
@@ -36,7 +36,7 @@ export const EditWidgetDialog = ({
   const [entityId, setEntityId] = useState<string | undefined>(undefined);
   const [showEntityPicker, setShowEntityPicker] = useState(false);
   // Camera-specific settings
-  const [viewMode, setViewMode] = useState<"snapshot" | "live">("snapshot");
+  const [viewMode, setViewMode] = useState<"snapshot" | "live" | "webrtc">("webrtc");
   const [refreshInterval, setRefreshInterval] = useState(10);
   const [liveFps, setLiveFps] = useState(5);
 
@@ -49,7 +49,7 @@ export const EditWidgetDialog = ({
       setShowEntityPicker(false);
       // Camera settings
       if (widget.type === "camera") {
-        setViewMode((widget.props.viewMode as "snapshot" | "live") || "snapshot");
+        setViewMode((widget.props.viewMode as "snapshot" | "live" | "webrtc") || "webrtc");
         setRefreshInterval((widget.props.refreshInterval as number) || 10);
         setLiveFps((widget.props.liveFps as number) || 5);
       }
@@ -129,38 +129,53 @@ export const EditWidgetDialog = ({
               <div className="space-y-4 pt-2 border-t border-border">
                 <div className="space-y-2">
                   <Label>View Mode</Label>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-3 gap-2">
                     <button
                       type="button"
-                      onClick={() => setViewMode("snapshot")}
+                      onClick={() => setViewMode("webrtc")}
                       className={cn(
-                        "flex items-center justify-center gap-2 p-3 rounded-lg border transition-all",
-                        viewMode === "snapshot"
+                        "flex flex-col items-center justify-center gap-1 p-3 rounded-lg border transition-all",
+                        viewMode === "webrtc"
                           ? "bg-primary text-primary-foreground border-primary"
                           : "bg-secondary border-border active:scale-95"
                       )}
                     >
-                      <Image className="w-4 h-4" />
-                      <span className="text-sm font-medium">Snapshot</span>
+                      <Wifi className="w-4 h-4" />
+                      <span className="text-xs font-medium">WebRTC</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setViewMode("live")}
                       className={cn(
-                        "flex items-center justify-center gap-2 p-3 rounded-lg border transition-all",
+                        "flex flex-col items-center justify-center gap-1 p-3 rounded-lg border transition-all",
                         viewMode === "live"
                           ? "bg-primary text-primary-foreground border-primary"
                           : "bg-secondary border-border active:scale-95"
                       )}
                     >
                       <Video className="w-4 h-4" />
-                      <span className="text-sm font-medium">Live</span>
+                      <span className="text-xs font-medium">Polling</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("snapshot")}
+                      className={cn(
+                        "flex flex-col items-center justify-center gap-1 p-3 rounded-lg border transition-all",
+                        viewMode === "snapshot"
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-secondary border-border active:scale-95"
+                      )}
+                    >
+                      <Image className="w-4 h-4" />
+                      <span className="text-xs font-medium">Snapshot</span>
                     </button>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {viewMode === "snapshot" 
-                      ? "Shows still images. Tap to view fullscreen." 
-                      : "Fast-refreshing snapshots for live viewing."}
+                    {viewMode === "webrtc" 
+                      ? "Low-latency stream via WebRTC (requires go2rtc)." 
+                      : viewMode === "live"
+                      ? "Fast-refreshing snapshots for live viewing."
+                      : "Shows still images. Tap to view fullscreen."}
                   </p>
                 </div>
 
@@ -176,7 +191,7 @@ export const EditWidgetDialog = ({
                       onChange={(e) => setRefreshInterval(Math.max(5, parseInt(e.target.value) || 10))}
                     />
                   </div>
-                ) : (
+                ) : viewMode === "live" ? (
                   <div className="space-y-2">
                     <Label htmlFor="live-fps">Frame Rate (FPS)</Label>
                     <div className="flex items-center gap-3">
@@ -197,7 +212,7 @@ export const EditWidgetDialog = ({
                       Higher FPS = smoother but uses more bandwidth
                     </p>
                   </div>
-                )}
+                ) : null}
               </div>
             )}
 

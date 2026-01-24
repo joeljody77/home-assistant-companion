@@ -28,6 +28,7 @@ interface WSMessage {
   ha_version?: string;
   message?: string;
   success?: boolean;
+  result?: unknown;
   event?: {
     event_type: string;
     data: {
@@ -39,6 +40,12 @@ interface WSMessage {
 }
 
 export type WSStatus = "disconnected" | "connecting" | "authenticated";
+
+// Pending command promise handlers
+interface PendingCommand {
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+}
 
 // Entity domain to widget type mapping
 export const DOMAIN_TO_WIDGET_TYPE: Record<string, string> = {
@@ -119,6 +126,7 @@ export const useHomeAssistant = () => {
   const messageIdRef = useRef(1);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const configRef = useRef(config);
+  const pendingCommandsRef = useRef<Map<number, PendingCommand>>(new Map());
 
   // Keep configRef in sync
   useEffect(() => {
@@ -243,13 +251,60 @@ export const useHomeAssistant = () => {
         break;
 
       case "result":
-        // Handle command results if needed
-        if (!message.success) {
+        // Handle command results - resolve pending promises
+        if (message.id !== undefined) {
+          const pending = pendingCommandsRef.current.get(message.id);
+          if (pending) {
+            pendingCommandsRef.current.delete(message.id);
+            if (message.success) {
+              pending.resolve(message.result);
+            } else {
+              pending.reject(new Error(message.message || "Command failed"));
+            }
+          }
+        }
+        if (!message.success && !message.id) {
           console.warn("WebSocket command failed:", message);
         }
         break;
     }
   }, [fetchEntities, subscribeToStateChanges, handleStateChanged]);
+
+  // Send a command and wait for response (for WebRTC signaling, etc.)
+  const sendCommand = useCallback(async (command: object): Promise<unknown> => {
+    return new Promise((resolve, reject) => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        reject(new Error("WebSocket not connected"));
+        return;
+      }
+
+      const id = messageIdRef.current++;
+      pendingCommandsRef.current.set(id, { resolve, reject });
+
+      // Timeout after 10 seconds
+      const timeout = setTimeout(() => {
+        if (pendingCommandsRef.current.has(id)) {
+          pendingCommandsRef.current.delete(id);
+          reject(new Error("Command timeout"));
+        }
+      }, 10000);
+
+      wsRef.current.send(JSON.stringify({ ...command, id }));
+
+      // Clear timeout when resolved
+      const originalResolve = resolve;
+      pendingCommandsRef.current.set(id, {
+        resolve: (value) => {
+          clearTimeout(timeout);
+          originalResolve(value);
+        },
+        reject: (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        },
+      });
+    });
+  }, []);
 
   // Connect via WebSocket
   const connectWebSocket = useCallback(() => {
@@ -462,6 +517,7 @@ export const useHomeAssistant = () => {
     isLoading,
     error,
     wsStatus,
+    wsRef,
     testConnection,
     connect,
     disconnect,
@@ -471,5 +527,6 @@ export const useHomeAssistant = () => {
     getEntitiesForWidgetType,
     getRecommendedWidgetType,
     callService,
+    sendCommand,
   };
 };
