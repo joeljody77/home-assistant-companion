@@ -189,24 +189,36 @@ export const ClimateWidget = ({
 
       {/* Main display area - octagonal frame */}
       <div className="flex-1 flex flex-col px-3 pb-2" style={{ minHeight: 0 }}>
+        {/* Glow wrapper - needed because clipPath clips box-shadow */}
         <div
           className="flex-1 relative"
           style={{
-            background: `
-              linear-gradient(145deg, 
-                hsl(220 12% 22%) 0%,
-                hsl(220 12% 16%) 30%,
-                hsl(220 12% 12%) 100%
-              )
-            `,
             borderRadius: '12px',
-            clipPath: 'polygon(8% 0%, 92% 0%, 100% 8%, 100% 92%, 92% 100%, 8% 100%, 0% 92%, 0% 8%)',
-            boxShadow: `
-              inset 0 2px 4px 0 hsl(220 10% 30% / 0.3),
-              inset 0 -2px 4px 0 hsl(0 0% 0% / 0.4)
-            `,
+            boxShadow: isActive ? `
+              0 0 24px 4px ${glowColor}25,
+              0 0 48px 8px ${glowColor}12
+            ` : 'none',
+            transition: 'box-shadow 0.3s ease',
           }}
         >
+          <div
+            className="absolute inset-0"
+            style={{
+              background: `
+                linear-gradient(145deg, 
+                  hsl(220 12% 22%) 0%,
+                  hsl(220 12% 16%) 30%,
+                  hsl(220 12% 12%) 100%
+                )
+              `,
+              borderRadius: '12px',
+              clipPath: 'polygon(8% 0%, 92% 0%, 100% 8%, 100% 92%, 92% 100%, 8% 100%, 0% 92%, 0% 8%)',
+              boxShadow: `
+                inset 0 2px 4px 0 hsl(220 10% 30% / 0.3),
+                inset 0 -2px 4px 0 hsl(0 0% 0% / 0.4)
+              `,
+            }}
+          >
           {/* Inner display screen */}
           <div
             className="absolute flex flex-col items-center justify-center"
@@ -280,6 +292,7 @@ export const ClimateWidget = ({
                 °C
               </span>
             </div>
+          </div>
           </div>
         </div>
 
