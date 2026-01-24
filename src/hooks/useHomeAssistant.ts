@@ -83,22 +83,27 @@ export const useHomeAssistant = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Use refs for values needed in intervals to avoid stale closures
+  const configRef = useRef(config);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Fetch all entities from Home Assistant
-  const fetchEntities = useCallback(async (haConfig?: HAConfig, silent = false) => {
-    const configToUse = haConfig || config;
-    if (!configToUse) return [];
+  // Keep configRef in sync
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
 
+  // Core fetch function that uses refs to avoid stale closures
+  const fetchEntitiesCore = useCallback(async (haConfig: HAConfig, silent = false): Promise<HAEntity[]> => {
     if (!silent) {
       setIsLoading(true);
     }
     setError(null);
 
     try {
-      const response = await fetch(`${configToUse.url}/api/states`, {
+      const response = await fetch(`${haConfig.url}/api/states`, {
         headers: {
-          Authorization: `Bearer ${configToUse.token}`,
+          Authorization: `Bearer ${haConfig.token}`,
           "Content-Type": "application/json",
         },
       });
@@ -121,7 +126,14 @@ export const useHomeAssistant = () => {
         setIsLoading(false);
       }
     }
-  }, [config]);
+  }, []);
+
+  // Public fetch function
+  const fetchEntities = useCallback(async (haConfig?: HAConfig, silent = false) => {
+    const configToUse = haConfig || configRef.current;
+    if (!configToUse) return [];
+    return fetchEntitiesCore(configToUse, silent);
+  }, [fetchEntitiesCore]);
 
   // Start polling for entity updates
   const startPolling = useCallback((haConfig: HAConfig) => {
@@ -132,9 +144,9 @@ export const useHomeAssistant = () => {
 
     // Start new polling interval
     pollIntervalRef.current = setInterval(() => {
-      fetchEntities(haConfig, true); // Silent fetch to avoid loading flicker
+      fetchEntitiesCore(haConfig, true);
     }, POLL_INTERVAL);
-  }, [fetchEntities]);
+  }, [fetchEntitiesCore]);
 
   // Stop polling
   const stopPolling = useCallback(() => {
@@ -181,16 +193,18 @@ export const useHomeAssistant = () => {
     
     saveConfig(newConfig);
     setConfig(newConfig);
+    configRef.current = newConfig;
     
-    await fetchEntities(newConfig);
+    await fetchEntitiesCore(newConfig);
     startPolling(newConfig);
-  }, [fetchEntities, startPolling]);
+  }, [fetchEntitiesCore, startPolling]);
 
   // Disconnect and clear configuration
   const disconnect = useCallback(() => {
     stopPolling();
     saveConfig(null);
     setConfig(null);
+    configRef.current = null;
     setEntities([]);
     setIsConnected(false);
     setError(null);
@@ -228,13 +242,14 @@ export const useHomeAssistant = () => {
     entityId: string,
     data?: Record<string, unknown>
   ): Promise<boolean> => {
-    if (!config) return false;
+    const currentConfig = configRef.current;
+    if (!currentConfig) return false;
 
     try {
-      const response = await fetch(`${config.url}/api/services/${domain}/${service}`, {
+      const response = await fetch(`${currentConfig.url}/api/services/${domain}/${service}`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${config.token}`,
+          Authorization: `Bearer ${currentConfig.token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -245,7 +260,11 @@ export const useHomeAssistant = () => {
 
       if (response.ok) {
         // Immediately fetch updated entities after service call
-        setTimeout(() => fetchEntities(config, true), 500);
+        setTimeout(() => {
+          if (configRef.current) {
+            fetchEntitiesCore(configRef.current, true);
+          }
+        }, 500);
       }
 
       return response.ok;
@@ -253,23 +272,26 @@ export const useHomeAssistant = () => {
       console.error("Service call failed:", e);
       return false;
     }
-  }, [config, fetchEntities]);
+  }, [fetchEntitiesCore]);
 
   // Auto-connect on mount if config exists
   useEffect(() => {
-    if (config && !isConnected && !isLoading) {
-      fetchEntities().then(() => {
-        if (config) {
-          startPolling(config);
+    const savedConfig = configRef.current;
+    if (savedConfig) {
+      fetchEntitiesCore(savedConfig).then(() => {
+        if (configRef.current) {
+          startPolling(configRef.current);
         }
       });
     }
 
     // Cleanup on unmount
     return () => {
-      stopPolling();
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
     };
-  }, []);
+  }, [fetchEntitiesCore, startPolling]);
 
   return {
     config,
