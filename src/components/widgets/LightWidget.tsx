@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Lightbulb, LightbulbOff } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,52 @@ interface LightWidgetProps {
   initialState?: boolean;
   initialBrightness?: number;
 }
+
+// Convert color temperature (mireds) to RGB
+const colorTempToRgb = (mireds: number): [number, number, number] => {
+  // Convert mireds to Kelvin
+  const kelvin = 1000000 / mireds;
+  const temp = kelvin / 100;
+  
+  let r: number, g: number, b: number;
+  
+  if (temp <= 66) {
+    r = 255;
+    g = Math.min(255, Math.max(0, 99.4708025861 * Math.log(temp) - 161.1195681661));
+    b = temp <= 19 ? 0 : Math.min(255, Math.max(0, 138.5177312231 * Math.log(temp - 10) - 305.0447927307));
+  } else {
+    r = Math.min(255, Math.max(0, 329.698727446 * Math.pow(temp - 60, -0.1332047592)));
+    g = Math.min(255, Math.max(0, 288.1221695283 * Math.pow(temp - 60, -0.0755148492)));
+    b = 255;
+  }
+  
+  return [Math.round(r), Math.round(g), Math.round(b)];
+};
+
+// Get light color from HA entity attributes
+const getLightColor = (attributes: Record<string, unknown> | undefined): string | null => {
+  if (!attributes) return null;
+  
+  // Check for RGB color
+  if (attributes.rgb_color && Array.isArray(attributes.rgb_color)) {
+    const [r, g, b] = attributes.rgb_color as [number, number, number];
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+  
+  // Check for HS color (convert to RGB)
+  if (attributes.hs_color && Array.isArray(attributes.hs_color)) {
+    const [h, s] = attributes.hs_color as [number, number];
+    return `hsl(${h}, ${s}%, 50%)`;
+  }
+  
+  // Check for color temperature
+  if (attributes.color_temp !== undefined && typeof attributes.color_temp === 'number') {
+    const [r, g, b] = colorTempToRgb(attributes.color_temp);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+  
+  return null;
+};
 
 export const LightWidget = ({
   name,
@@ -40,6 +86,18 @@ export const LightWidget = ({
   // Use HA state if connected and entity exists, otherwise fall back to local state
   const isOn = resolvedEntityId && isConnected && entity ? haIsOn : localIsOn;
   const brightness = resolvedEntityId && isConnected && entity ? haBrightness : localBrightness;
+
+  // Get light color from HA attributes
+  const lightColor = useMemo(() => {
+    if (!isOn) return null;
+    if (resolvedEntityId && isConnected && entity) {
+      return getLightColor(entity.attributes as Record<string, unknown>);
+    }
+    return null;
+  }, [isOn, resolvedEntityId, isConnected, entity]);
+
+  // Calculate icon opacity based on brightness (minimum 0.4 for visibility)
+  const iconOpacity = isOn ? Math.max(0.4, brightness / 100) : 1;
 
   const toggleLight = async () => {
     if (resolvedEntityId && isConnected) {
@@ -74,6 +132,16 @@ export const LightWidget = ({
     }
   };
 
+  // Icon style with color and brightness
+  const iconStyle = useMemo(() => {
+    if (!isOn) return undefined;
+    return {
+      color: lightColor || undefined,
+      opacity: iconOpacity,
+      filter: lightColor ? `drop-shadow(0 0 8px ${lightColor})` : undefined,
+    };
+  }, [isOn, lightColor, iconOpacity]);
+
   // Calculate dynamic sizes
   const minDim = Math.min(cols, rows);
   const maxDim = Math.max(cols, rows);
@@ -98,16 +166,19 @@ export const LightWidget = ({
               isOn ? "bg-primary/20" : "bg-secondary"
             )}
           >
-            {isOn ? (
-              <Lightbulb className="w-5 h-5 text-primary" />
-            ) : (
-              <LightbulbOff className="w-5 h-5 text-muted-foreground" />
-            )}
-          </div>
-          <div
-            className={cn(
-              "status-indicator",
-              isOn ? "status-online" : "status-offline"
+          {isOn ? (
+            <Lightbulb 
+              className={cn("w-5 h-5", !lightColor && "text-primary")} 
+              style={iconStyle}
+            />
+          ) : (
+            <LightbulbOff className="w-5 h-5 text-muted-foreground" />
+          )}
+        </div>
+        <div
+          className={cn(
+            "status-indicator",
+            isOn ? "status-online" : "status-offline"
             )}
           />
         </div>
@@ -142,8 +213,11 @@ export const LightWidget = ({
             isOn ? "bg-primary/20" : "bg-secondary"
           )}
         >
-          {isOn ? (
-            <Lightbulb className={cn("text-primary", iconSize)} />
+        {isOn ? (
+            <Lightbulb 
+              className={cn(iconSize, !lightColor && "text-primary")} 
+              style={iconStyle}
+            />
           ) : (
             <LightbulbOff className={cn("text-muted-foreground", iconSize)} />
           )}
