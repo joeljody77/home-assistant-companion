@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback } from "react";
 import { Minus, Plus, Power, Snowflake, Flame, Fan, Droplets } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWidgetSize } from "@/contexts/WidgetSizeContext";
@@ -42,8 +42,6 @@ export const ClimateWidget = ({
   const { getEntity, callService, isConnected } = useHomeAssistantContext();
 
   const resolvedEntityId = entityId ?? entity_id;
-  const sliderRef = useRef<HTMLDivElement>(null);
-  const isDragging = useRef(false);
 
   const entity = resolvedEntityId ? getEntity(resolvedEntityId) : undefined;
   const haCurrentTemp = entity?.attributes?.current_temperature as number | undefined;
@@ -97,49 +95,6 @@ export const ClimateWidget = ({
     await setTemperature(targetTemp - 1);
   };
 
-  // Calculate slider position (0 to 1)
-  const sliderProgress = (targetTemp - MIN_TEMP) / (MAX_TEMP - MIN_TEMP);
-
-  const handleSliderPointerDown = useCallback((e: React.PointerEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    isDragging.current = true;
-    (e.target as Element).setPointerCapture(e.pointerId);
-    
-    if (sliderRef.current) {
-      const rect = sliderRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const progress = Math.max(0, Math.min(1, x / rect.width));
-      const newTemp = Math.round(MIN_TEMP + progress * (MAX_TEMP - MIN_TEMP));
-      setLocalTargetTemp(newTemp);
-    }
-  }, []);
-
-  const handleSliderPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!isDragging.current || !sliderRef.current) return;
-    e.stopPropagation();
-    
-    const rect = sliderRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const progress = Math.max(0, Math.min(1, x / rect.width));
-    const newTemp = Math.round(MIN_TEMP + progress * (MAX_TEMP - MIN_TEMP));
-    if (newTemp !== localTargetTemp) {
-      setLocalTargetTemp(newTemp);
-    }
-  }, [localTargetTemp]);
-
-  const handleSliderPointerUp = useCallback(async (e: React.PointerEvent) => {
-    if (!isDragging.current) return;
-    e.stopPropagation();
-    isDragging.current = false;
-    (e.target as Element).releasePointerCapture(e.pointerId);
-    
-    if (resolvedEntityId && isConnected) {
-      await callService("climate", "set_temperature", resolvedEntityId, {
-        temperature: localTargetTemp
-      });
-    }
-  }, [resolvedEntityId, isConnected, callService, localTargetTemp]);
 
   // Amber/gold glow color
   const glowColor = "hsl(40, 95%, 55%)";
@@ -308,97 +263,45 @@ export const ClimateWidget = ({
           </div>
         </div>
 
-        {/* Temperature slider bar with +/- buttons */}
+        {/* Temperature +/- buttons */}
         {showSlider && (
-          <div className="flex items-center gap-2 mt-2">
+          <div className="flex items-center justify-center gap-4 mt-3">
             {/* Minus button */}
             <button
               onClick={decrementTemp}
-              className="flex items-center justify-center transition-all active:scale-95"
+              className="flex items-center justify-center transition-all active:scale-90"
               style={{
-                width: '36px',
-                height: '28px',
-                background: `linear-gradient(145deg, hsl(220 10% 18%) 0%, hsl(220 10% 12%) 100%)`,
-                borderRadius: '6px',
+                width: '56px',
+                height: '56px',
+                background: `linear-gradient(145deg, hsl(220 10% 20%) 0%, hsl(220 10% 12%) 100%)`,
+                borderRadius: '12px',
                 boxShadow: `
-                  inset 0 1px 1px 0 hsl(220 10% 26% / 0.3),
-                  inset 0 -1px 1px 0 hsl(0 0% 0% / 0.3),
-                  0 2px 4px -1px hsl(0 0% 0% / 0.4)
+                  inset 0 1px 2px 0 hsl(220 10% 28% / 0.4),
+                  inset 0 -2px 2px 0 hsl(0 0% 0% / 0.3),
+                  0 4px 8px -2px hsl(0 0% 0% / 0.5)
                 `,
               }}
             >
-              <Minus className="w-4 h-4 text-muted-foreground" />
+              <Minus className="w-6 h-6 text-muted-foreground" />
             </button>
-
-            {/* Slider track */}
-            <div
-              ref={sliderRef}
-              className="flex-1 relative cursor-pointer touch-none"
-              style={{
-                height: '20px',
-                background: `linear-gradient(180deg, hsl(220 10% 8%) 0%, hsl(220 10% 12%) 100%)`,
-                borderRadius: '10px',
-                boxShadow: `
-                  inset 0 2px 4px 0 hsl(0 0% 0% / 0.5),
-                  0 1px 0 0 hsl(220 10% 20% / 0.2)
-                `,
-              }}
-              onPointerDown={handleSliderPointerDown}
-              onPointerMove={handleSliderPointerMove}
-              onPointerUp={handleSliderPointerUp}
-              onPointerCancel={handleSliderPointerUp}
-            >
-              {/* Active fill */}
-              <div
-                className="absolute top-1/2 -translate-y-1/2 left-1"
-                style={{
-                  width: `calc(${sliderProgress * 100}% - 8px)`,
-                  height: '10px',
-                  background: isActive 
-                    ? `linear-gradient(90deg, ${glowColorDim} 0%, ${glowColor} 100%)`
-                    : 'hsl(220 10% 25%)',
-                  borderRadius: '5px',
-                  boxShadow: isActive ? `0 0 8px 1px ${glowColor}60` : 'none',
-                  transition: isDragging.current ? 'none' : 'width 0.15s ease-out',
-                }}
-              />
-
-              {/* Thumb */}
-              <div
-                className="absolute top-1/2 -translate-y-1/2"
-                style={{
-                  left: `calc(${sliderProgress * 100}% - 10px)`,
-                  width: '20px',
-                  height: '20px',
-                  background: isActive
-                    ? `radial-gradient(circle at 40% 40%, hsl(45 100% 75%) 0%, ${glowColor} 100%)`
-                    : 'hsl(220 10% 30%)',
-                  borderRadius: '50%',
-                  boxShadow: isActive 
-                    ? `0 0 12px 3px ${glowColor}80, 0 2px 4px 0 hsl(0 0% 0% / 0.3)`
-                    : '0 2px 4px 0 hsl(0 0% 0% / 0.3)',
-                  transition: isDragging.current ? 'none' : 'left 0.15s ease-out',
-                }}
-              />
-            </div>
 
             {/* Plus button */}
             <button
               onClick={incrementTemp}
-              className="flex items-center justify-center transition-all active:scale-95"
+              className="flex items-center justify-center transition-all active:scale-90"
               style={{
-                width: '36px',
-                height: '28px',
-                background: `linear-gradient(145deg, hsl(220 10% 18%) 0%, hsl(220 10% 12%) 100%)`,
-                borderRadius: '6px',
+                width: '56px',
+                height: '56px',
+                background: `linear-gradient(145deg, hsl(220 10% 20%) 0%, hsl(220 10% 12%) 100%)`,
+                borderRadius: '12px',
                 boxShadow: `
-                  inset 0 1px 1px 0 hsl(220 10% 26% / 0.3),
-                  inset 0 -1px 1px 0 hsl(0 0% 0% / 0.3),
-                  0 2px 4px -1px hsl(0 0% 0% / 0.4)
+                  inset 0 1px 2px 0 hsl(220 10% 28% / 0.4),
+                  inset 0 -2px 2px 0 hsl(0 0% 0% / 0.3),
+                  0 4px 8px -2px hsl(0 0% 0% / 0.5)
                 `,
               }}
             >
-              <Plus className="w-4 h-4 text-muted-foreground" />
+              <Plus className="w-6 h-6 text-muted-foreground" />
             </button>
           </div>
         )}
