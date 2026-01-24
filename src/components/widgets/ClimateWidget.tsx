@@ -97,28 +97,30 @@ export const ClimateWidget = ({
 
 
   // Dashboard accent color for text/elements
-  const accentColor = "hsl(32, 95%, 55%)"; // Orange accent matching dashboard theme
-  const accentColorDim = "hsl(32, 80%, 45%)";
+  const accentColor = "hsl(32 95% 55%)"; // Orange accent matching dashboard theme
+  const accentColorDim = "hsl(32 80% 45%)";
 
-  // Mode-specific colors for glow effects only
-  const getModeGlowColor = () => {
+  // Mode-specific colors for glow effects only (returned as HSL parts so we can apply / alpha)
+  const getModeGlowHsl = (): string => {
     switch (mode) {
       case "cool":
-        return "hsl(200, 95%, 55%)"; // Blue glow
+        return "200 95% 55%"; // Blue glow
       case "heat":
-        return "hsl(25, 95%, 55%)"; // Orange glow
+        return "25 95% 55%"; // Orange glow
       case "fan_only":
-        return "hsl(145, 85%, 50%)"; // Green glow
+        return "145 85% 50%"; // Green glow
       case "dry":
-        return "hsl(45, 95%, 55%)"; // Yellow glow
+        return "45 95% 55%"; // Yellow glow
       case "auto":
-        return "hsl(280, 85%, 60%)"; // Purple glow
+        return "280 85% 60%"; // Purple glow
       default:
-        return "hsl(220, 20%, 50%)"; // Gray glow for off
+        return "220 20% 50%"; // Gray glow for off
     }
   };
 
-  const glowColor = getModeGlowColor();
+  const glowHsl = getModeGlowHsl();
+  const glowColor = `hsl(${glowHsl})`;
+  const glow = (alpha: number) => `hsl(${glowHsl} / ${alpha})`;
 
   const getModeLabel = () => {
     switch (mode) {
@@ -195,7 +197,7 @@ export const ClimateWidget = ({
             <div
               className="absolute -inset-2 pointer-events-none"
               style={{
-                background: `radial-gradient(ellipse at 50% 50%, ${glowColor}40 0%, ${glowColor}20 40%, transparent 70%)`,
+                background: `radial-gradient(ellipse at 50% 50%, ${glow(0.32)} 0%, ${glow(0.16)} 40%, transparent 70%)`,
                 filter: 'blur(12px)',
                 borderRadius: '20px',
               }}
@@ -231,7 +233,7 @@ export const ClimateWidget = ({
               bottom: '8%',
               background: `
                 radial-gradient(ellipse at 50% 30%, 
-                  ${glowColor}15 0%,
+                  ${glow(0.10)} 0%,
                   hsl(220 15% 8%) 70%,
                   hsl(220 15% 6%) 100%
                 )
@@ -239,8 +241,8 @@ export const ClimateWidget = ({
               borderRadius: '8px',
               clipPath: 'polygon(6% 0%, 94% 0%, 100% 6%, 100% 94%, 94% 100%, 6% 100%, 0% 94%, 0% 6%)',
               boxShadow: isActive ? `
-                inset 0 0 40px 0 ${glowColor}15,
-                inset 0 0 80px 0 ${glowColor}08
+                inset 0 0 40px 0 ${glow(0.14)},
+                inset 0 0 80px 0 ${glow(0.08)}
               ` : `
                 inset 0 4px 12px 0 hsl(0 0% 0% / 0.5)
               `,
@@ -256,7 +258,7 @@ export const ClimateWidget = ({
                   height: '3px',
                   background: `linear-gradient(90deg, transparent 0%, ${glowColor} 20%, ${glowColor} 80%, transparent 100%)`,
                   borderRadius: '2px',
-                  boxShadow: `0 0 12px 2px ${glowColor}80, 0 0 24px 4px ${glowColor}40`,
+                  boxShadow: `0 0 12px 2px ${glow(0.6)}, 0 0 24px 4px ${glow(0.3)}`,
                 }}
               />
             )}
@@ -266,7 +268,7 @@ export const ClimateWidget = ({
               className="text-sm font-medium tracking-wide mt-4"
               style={{ 
                 color: isActive ? accentColor : 'hsl(var(--muted-foreground))',
-                textShadow: isActive ? `0 0 12px ${glowColor}80` : 'none',
+                textShadow: isActive ? `0 0 12px ${glow(0.6)}` : 'none',
               }}
             >
               {getModeLabel()}
@@ -279,7 +281,7 @@ export const ClimateWidget = ({
                 style={{ 
                   fontSize: showFullLayout ? '3.5rem' : '2.5rem',
                   color: isActive ? accentColor : 'hsl(var(--muted-foreground))',
-                  textShadow: isActive ? `0 0 20px ${glowColor}60, 0 0 40px ${glowColor}30` : 'none',
+                  textShadow: isActive ? `0 0 20px ${glow(0.45)}, 0 0 40px ${glow(0.22)}` : 'none',
                 }}
               >
                 {Math.round(targetTemp)}
@@ -379,7 +381,7 @@ export const ClimateWidget = ({
                   <div
                     className="absolute inset-0 flex items-center justify-center pointer-events-none"
                     style={{
-                      background: `radial-gradient(circle at 50% 50%, ${glowColor}25 0%, transparent 70%)`,
+                      background: `radial-gradient(circle at 50% 50%, ${glow(0.16)} 0%, transparent 70%)`,
                     }}
                   />
                 )}
@@ -389,7 +391,7 @@ export const ClimateWidget = ({
                   )}
                   style={{
                     color: isSelected ? accentColor : 'hsl(var(--muted-foreground))',
-                    filter: isSelected ? `drop-shadow(0 0 6px ${glowColor}) drop-shadow(0 0 12px ${glowColor}80)` : 'none',
+                    filter: isSelected ? `drop-shadow(0 0 6px ${glow(0.6)}) drop-shadow(0 0 12px ${glow(0.3)})` : 'none',
                   }}
                 />
               </button>
