@@ -1,3 +1,4 @@
+// Widget component for draggable grid items
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { X, Pencil } from "lucide-react";
