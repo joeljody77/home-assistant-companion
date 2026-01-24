@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Power, Plug, Fan, Tv, Speaker, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWidgetSize } from "@/contexts/WidgetSizeContext";
+import { useHomeAssistantContext } from "@/contexts/HomeAssistantContext";
 
 type DeviceType = "switch" | "plug" | "fan" | "tv" | "speaker";
 
@@ -9,6 +10,7 @@ interface SwitchWidgetProps {
   name: string;
   type: DeviceType;
   room?: string;
+  entityId?: string;
   initialState?: boolean;
 }
 
@@ -24,11 +26,29 @@ export const SwitchWidget = ({
   name,
   type,
   room,
+  entityId,
   initialState = false,
 }: SwitchWidgetProps) => {
-  const [isOn, setIsOn] = useState(initialState);
+  const [localIsOn, setLocalIsOn] = useState(initialState);
   const Icon = deviceIcons[type];
   const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
+  const { getEntity, callService, isConnected } = useHomeAssistantContext();
+
+  // Get live state from Home Assistant
+  const entity = entityId ? getEntity(entityId) : undefined;
+  const haIsOn = entity?.state === "on";
+
+  // Use HA state if connected and entity exists, otherwise fall back to local state
+  const isOn = entityId && isConnected && entity ? haIsOn : localIsOn;
+
+  const toggleSwitch = async () => {
+    if (entityId && isConnected) {
+      const domain = entityId.split(".")[0]; // switch, fan, input_boolean, etc.
+      await callService(domain, isOn ? "turn_off" : "turn_on", entityId);
+    } else {
+      setLocalIsOn(!localIsOn);
+    }
+  };
 
   // Calculate dynamic sizes
   const minDim = Math.min(cols, rows);
@@ -41,7 +61,7 @@ export const SwitchWidget = ({
   if (isCompact) {
     return (
       <button
-        onClick={() => setIsOn(!isOn)}
+        onClick={toggleSwitch}
         className={cn(
           "widget-card text-left w-full h-full flex flex-col",
           isOn && "widget-card-active"
@@ -91,7 +111,7 @@ export const SwitchWidget = ({
   if (isWide && !isTall) {
     return (
       <button
-        onClick={() => setIsOn(!isOn)}
+        onClick={toggleSwitch}
         className={cn(
           "widget-card text-left w-full h-full flex items-center gap-4",
           isOn && "widget-card-active"
@@ -144,7 +164,7 @@ export const SwitchWidget = ({
   // Tall or Large layout - centered
   return (
     <button
-      onClick={() => setIsOn(!isOn)}
+      onClick={toggleSwitch}
       className={cn(
         "widget-card text-left w-full h-full flex flex-col items-center justify-center gap-4",
         isOn && "widget-card-active"

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Moon, Sun, Film, Coffee, Sparkles, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWidgetSize } from "@/contexts/WidgetSizeContext";
+import { useHomeAssistantContext } from "@/contexts/HomeAssistantContext";
 
 type SceneType = "night" | "morning" | "movie" | "relax" | "party";
 
@@ -9,6 +10,7 @@ interface SceneWidgetProps {
   name: string;
   type: SceneType;
   deviceCount?: number;
+  entityId?: string;
 }
 
 const sceneIcons: Record<SceneType, LucideIcon> = {
@@ -31,10 +33,37 @@ export const SceneWidget = ({
   name,
   type,
   deviceCount = 5,
+  entityId,
 }: SceneWidgetProps) => {
-  const [isActive, setIsActive] = useState(false);
+  const [localIsActive, setLocalIsActive] = useState(false);
   const Icon = sceneIcons[type];
   const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
+  const { getEntity, callService, isConnected } = useHomeAssistantContext();
+
+  // Get live state from Home Assistant (for scripts/automations that have on/off state)
+  const entity = entityId ? getEntity(entityId) : undefined;
+  const haIsActive = entity?.state === "on";
+
+  // Use HA state if connected and entity exists, otherwise fall back to local state
+  const isActive = entityId && isConnected && entity ? haIsActive : localIsActive;
+
+  const activateScene = async () => {
+    if (entityId && isConnected) {
+      const domain = entityId.split(".")[0]; // scene, script, automation
+      if (domain === "scene") {
+        await callService("scene", "turn_on", entityId);
+      } else if (domain === "script") {
+        await callService("script", "turn_on", entityId);
+      } else if (domain === "automation") {
+        await callService("automation", "trigger", entityId);
+      }
+      // Scenes don't have a persistent "active" state, so we briefly show active
+      setLocalIsActive(true);
+      setTimeout(() => setLocalIsActive(false), 2000);
+    } else {
+      setLocalIsActive(!localIsActive);
+    }
+  };
 
   // Calculate dynamic sizes
   const minDim = Math.min(cols, rows);
@@ -47,7 +76,7 @@ export const SceneWidget = ({
   if (isCompact) {
     return (
       <button
-        onClick={() => setIsActive(!isActive)}
+        onClick={activateScene}
         className={cn(
           "widget-card text-left w-full h-full flex flex-col transition-all duration-300",
           isActive && "widget-card-active ring-1 ring-primary/50"
@@ -82,7 +111,7 @@ export const SceneWidget = ({
   if (isWide && !isTall) {
     return (
       <button
-        onClick={() => setIsActive(!isActive)}
+        onClick={activateScene}
         className={cn(
           "widget-card text-left w-full h-full flex items-center gap-4 transition-all duration-300",
           isActive && "widget-card-active ring-1 ring-primary/50"
@@ -128,7 +157,7 @@ export const SceneWidget = ({
   // Tall or Large layout - centered
   return (
     <button
-      onClick={() => setIsActive(!isActive)}
+      onClick={activateScene}
       className={cn(
         "widget-card text-left w-full h-full flex flex-col items-center justify-center gap-4 transition-all duration-300",
         isActive && "widget-card-active ring-1 ring-primary/50"
