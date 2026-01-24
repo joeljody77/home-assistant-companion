@@ -304,10 +304,9 @@ export const ClimateWidget = ({
                 letterSpacing: '0.2em',
                 color: isActive ? glowColor : 'hsl(var(--muted-foreground))',
                 textShadow: isActive ? `
-                  0 0 4px ${glow(0.9)},
-                  0 0 8px ${glow(0.7)},
-                  0 0 16px ${glow(0.5)},
-                  0 0 32px ${glow(0.3)}
+                  0 0 4px ${glow(0.6)},
+                  0 0 8px ${glow(0.4)},
+                  0 0 16px ${glow(0.2)}
                 ` : 'none',
               }}
             >
@@ -338,14 +337,11 @@ export const ClimateWidget = ({
                   letterSpacing: '-0.05em',
                   color: isActive ? glowColor : 'hsl(var(--muted-foreground))',
                   textShadow: isActive ? `
-                    0 0 2px ${glow(1)},
-                    0 0 4px ${glow(0.9)},
-                    0 0 8px ${glow(0.8)},
-                    0 0 16px ${glow(0.6)},
-                    0 0 32px ${glow(0.4)},
-                    0 0 48px ${glow(0.2)}
+                    0 0 2px ${glow(0.7)},
+                    0 0 6px ${glow(0.5)},
+                    0 0 12px ${glow(0.35)},
+                    0 0 24px ${glow(0.2)}
                   ` : 'none',
-                  filter: isActive ? `drop-shadow(0 0 2px ${glow(0.8)})` : 'none',
                 }}
               >
                 {Math.round(targetTemp)}
@@ -359,9 +355,9 @@ export const ClimateWidget = ({
                   fontSize: showFullLayout ? '1.5rem' : '1.25rem',
                   color: isActive ? glowColor : 'hsl(var(--muted-foreground))',
                   textShadow: isActive ? `
-                    0 0 2px ${glow(1)},
-                    0 0 8px ${glow(0.7)},
-                    0 0 16px ${glow(0.4)}
+                    0 0 2px ${glow(0.6)},
+                    0 0 6px ${glow(0.35)},
+                    0 0 12px ${glow(0.2)}
                   ` : 'none',
                 }}
               >
