@@ -23,6 +23,7 @@ interface SidebarProps {
   onOpenDensity?: () => void;
   onResetLayout?: () => void;
   onAddWidget?: () => void;
+  onOpenSettings?: () => void;
 }
 
 const menuItems = [
@@ -42,6 +43,7 @@ export const Sidebar = ({
   onOpenDensity,
   onResetLayout,
   onAddWidget,
+  onOpenSettings,
 }: SidebarProps) => {
   return (
     <aside className="fixed left-0 top-0 h-screen w-20 bg-sidebar flex flex-col items-center py-6 border-r border-sidebar-border z-50">
@@ -121,6 +123,7 @@ export const Sidebar = ({
 
       {/* Settings */}
       <button
+        onClick={onOpenSettings}
         className="w-12 h-12 rounded-xl flex items-center justify-center text-sidebar-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground transition-all duration-150"
         title="Settings"
       >

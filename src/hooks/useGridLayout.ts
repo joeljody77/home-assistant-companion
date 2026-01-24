@@ -415,6 +415,16 @@ export const useGridLayout = (density: DensityPreset) => {
     });
   }, []);
 
+  const updateWidgetProps = useCallback((widgetId: string, props: Record<string, unknown>) => {
+    setWidgets((currentWidgets) => {
+      const newWidgets = currentWidgets.map(w => 
+        w.id === widgetId ? { ...w, props } : w
+      );
+      saveLayout(newWidgets);
+      return newWidgets;
+    });
+  }, []);
+
   const addWidget = useCallback((type: string, props: Record<string, unknown>, position?: GridPosition) => {
     setWidgets((currentWidgets) => {
       const newId = `${type}-${Date.now()}`;
@@ -446,6 +456,7 @@ export const useGridLayout = (density: DensityPreset) => {
     moveWidget,
     deleteWidget,
     addWidget,
+    updateWidgetProps,
     currentPage,
     setCurrentPage,
     totalPages,

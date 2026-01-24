@@ -25,6 +25,7 @@ interface WidgetGridProps {
   onMoveWidget: (widgetId: string, targetPosition: GridPosition) => void;
   onResizeWidget: (widgetId: string, newSize: WidgetSize, newPosition: GridPosition, customCols?: number, customRows?: number) => void;
   onDeleteWidget: (widgetId: string) => void;
+  onEditWidget?: (widget: WidgetConfig) => void;
   isCellSelectionMode?: boolean;
   occupiedCells?: Set<string>;
   selectedCell?: GridPosition | null;
@@ -39,6 +40,7 @@ export const WidgetGrid = ({
   onMoveWidget,
   onResizeWidget,
   onDeleteWidget,
+  onEditWidget,
   isCellSelectionMode = false,
   occupiedCells,
   selectedCell,
@@ -181,6 +183,7 @@ export const WidgetGrid = ({
               gridRef={gridRef as React.RefObject<HTMLDivElement>}
               onResize={(newSize, newPosition, cols, rows) => onResizeWidget(widget.id, newSize, newPosition, cols, rows)}
               onDelete={() => onDeleteWidget(widget.id)}
+              onEdit={() => onEditWidget?.(widget)}
             >
               <WidgetRenderer widget={widget} />
             </DraggableGridWidget>

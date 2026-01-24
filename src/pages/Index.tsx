@@ -1,16 +1,21 @@
 import { useState, useCallback } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { WidgetGrid } from "@/components/widgets/WidgetGrid";
-import { useGridLayout, GridPosition } from "@/hooks/useGridLayout";
+import { useGridLayout, GridPosition, WidgetConfig } from "@/hooks/useGridLayout";
 import { useDensityConfig } from "@/hooks/useDensityConfig";
 import { DensitySettingsDialog } from "@/components/DensitySettingsDialog";
 import { AddWidgetDialog } from "@/components/AddWidgetDialog";
+import { EditWidgetDialog } from "@/components/EditWidgetDialog";
+import { HomeAssistantSettingsDialog } from "@/components/HomeAssistantSettingsDialog";
 import { PageIndicator } from "@/components/PageIndicator";
 
 const Index = () => {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [densityDialogOpen, setDensityDialogOpen] = useState(false);
   const [addWidgetDialogOpen, setAddWidgetDialogOpen] = useState(false);
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [editWidgetDialogOpen, setEditWidgetDialogOpen] = useState(false);
+  const [widgetToEdit, setWidgetToEdit] = useState<WidgetConfig | null>(null);
   const [isCellSelectionMode, setIsCellSelectionMode] = useState(false);
   const [selectedCell, setSelectedCell] = useState<GridPosition | null>(null);
   
@@ -24,6 +29,7 @@ const Index = () => {
     moveWidget,
     deleteWidget,
     addWidget,
+    updateWidgetProps,
     currentPage,
     setCurrentPage,
     totalPages,
@@ -60,6 +66,17 @@ const Index = () => {
     setSelectedCell(null);
   }, [addWidget]);
 
+  // Handle widget edit (long-press in edit mode)
+  const handleEditWidget = useCallback((widget: WidgetConfig) => {
+    setWidgetToEdit(widget);
+    setEditWidgetDialogOpen(true);
+  }, []);
+
+  // Handle widget save from edit dialog
+  const handleSaveWidget = useCallback((widgetId: string, props: Record<string, unknown>) => {
+    updateWidgetProps(widgetId, props);
+  }, [updateWidgetProps]);
+
   return (
     <div className="h-screen bg-background overflow-hidden flex">
       <Sidebar 
@@ -70,6 +87,7 @@ const Index = () => {
         onOpenDensity={() => setDensityDialogOpen(true)}
         onResetLayout={resetLayout}
         onAddWidget={handleAddWidgetStart}
+        onOpenSettings={() => setSettingsDialogOpen(true)}
       />
       
       <main className="ml-20 flex-1 flex flex-col overflow-hidden">
@@ -83,6 +101,7 @@ const Index = () => {
             onMoveWidget={moveWidget}
             onResizeWidget={resizeWidget}
             onDeleteWidget={deleteWidget}
+            onEditWidget={handleEditWidget}
             isCellSelectionMode={isCellSelectionMode}
             occupiedCells={occupiedCells}
             selectedCell={selectedCell}
@@ -113,6 +132,21 @@ const Index = () => {
         onOpenChange={handleDialogOpenChange}
         onAddWidget={handleAddWidget}
         selectedCell={selectedCell}
+      />
+
+      {/* Edit Widget Dialog */}
+      <EditWidgetDialog
+        open={editWidgetDialogOpen}
+        onOpenChange={setEditWidgetDialogOpen}
+        widget={widgetToEdit}
+        onSave={handleSaveWidget}
+        onDelete={deleteWidget}
+      />
+
+      {/* Home Assistant Settings Dialog */}
+      <HomeAssistantSettingsDialog
+        open={settingsDialogOpen}
+        onOpenChange={setSettingsDialogOpen}
       />
     </div>
   );
