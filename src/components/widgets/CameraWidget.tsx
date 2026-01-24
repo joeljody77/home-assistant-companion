@@ -1,19 +1,145 @@
-import { Camera, Maximize2 } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Camera, Maximize2, Video, Image, RefreshCw, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWidgetSize } from "@/contexts/WidgetSizeContext";
+import { useHomeAssistantContext } from "@/contexts/HomeAssistantContext";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 
 interface CameraWidgetProps {
   name: string;
   room?: string;
-  isOnline?: boolean;
+  entityId?: string;
+  entity_id?: string;
+  /** 'snapshot' shows a still image (tap to expand), 'live' shows MJPEG stream */
+  viewMode?: "snapshot" | "live";
+  /** Refresh interval for snapshots in seconds (default: 10) */
+  refreshInterval?: number;
 }
 
 export const CameraWidget = ({
   name,
   room,
-  isOnline = true,
+  entityId,
+  entity_id,
+  viewMode = "snapshot",
+  refreshInterval = 10,
 }: CameraWidgetProps) => {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState(Date.now());
+  const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  
   const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
+  const { getEntity, isConnected, config } = useHomeAssistantContext();
+
+  const resolvedEntityId = entityId ?? entity_id;
+  const entity = resolvedEntityId ? getEntity(resolvedEntityId) : undefined;
+  
+  const isOnline = entity?.state !== "unavailable" && entity?.state !== "unknown";
+
+  // Build the camera URL
+  const getCameraUrl = useCallback((forceRefresh = false) => {
+    if (!config || !resolvedEntityId) return null;
+    
+    const baseUrl = config.url;
+    const token = config.token;
+    
+    if (viewMode === "live") {
+      // MJPEG stream
+      return `${baseUrl}/api/camera_proxy_stream/${resolvedEntityId}?token=${token}`;
+    } else {
+      // Snapshot with cache-busting
+      const timestamp = forceRefresh ? Date.now() : lastRefresh;
+      return `${baseUrl}/api/camera_proxy/${resolvedEntityId}?token=${token}&_t=${timestamp}`;
+    }
+  }, [config, resolvedEntityId, viewMode, lastRefresh]);
+
+  // Fetch snapshot as blob to handle auth properly
+  const fetchSnapshot = useCallback(async () => {
+    if (!config || !resolvedEntityId) {
+      setHasError(true);
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      setHasError(false);
+      
+      const response = await fetch(
+        `${config.url}/api/camera_proxy/${resolvedEntityId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${config.token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      
+      // Revoke previous URL to prevent memory leaks
+      if (imageUrl) {
+        URL.revokeObjectURL(imageUrl);
+      }
+      
+      setImageUrl(url);
+      setHasError(false);
+    } catch (error) {
+      console.error("Failed to fetch camera snapshot:", error);
+      setHasError(true);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [config, resolvedEntityId]);
+
+  // Initial fetch and refresh timer for snapshots
+  useEffect(() => {
+    if (!isConnected || !resolvedEntityId || viewMode === "live") {
+      return;
+    }
+
+    fetchSnapshot();
+
+    // Set up refresh interval
+    refreshTimerRef.current = setInterval(() => {
+      setLastRefresh(Date.now());
+      fetchSnapshot();
+    }, refreshInterval * 1000);
+
+    return () => {
+      if (refreshTimerRef.current) {
+        clearInterval(refreshTimerRef.current);
+      }
+    };
+  }, [isConnected, resolvedEntityId, viewMode, refreshInterval, fetchSnapshot]);
+
+  // Cleanup blob URL on unmount
+  useEffect(() => {
+    return () => {
+      if (imageUrl) {
+        URL.revokeObjectURL(imageUrl);
+      }
+    };
+  }, []);
+
+  const handleRefresh = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setLastRefresh(Date.now());
+    fetchSnapshot();
+  };
+
+  const handleWidgetClick = () => {
+    if (viewMode === "snapshot" && imageUrl && !hasError) {
+      setIsExpanded(true);
+    }
+  };
 
   const minDim = Math.min(cols, rows);
   
@@ -21,98 +147,319 @@ export const CameraWidget = ({
   const iconSize = minDim >= 3 ? "w-20 h-20" : isLarge ? "w-16 h-16" : isTall ? "w-12 h-12" : isWide ? "w-10 h-10" : "w-8 h-8";
   const titleSize = minDim >= 3 ? "text-xl" : isLarge ? "text-lg" : "text-sm";
   const subtitleSize = minDim >= 3 ? "text-base" : isLarge ? "text-sm" : "text-xs";
-  const padding = minDim >= 3 ? "p-6" : isLarge ? "p-4" : "p-3";
+  const padding = minDim >= 3 ? "p-4" : isLarge ? "p-3" : "p-2";
+
+  // Render camera image/stream
+  const renderCameraFeed = (isDialog = false) => {
+    const containerClasses = isDialog 
+      ? "w-full h-full" 
+      : "absolute inset-0";
+
+    if (!isConnected || !resolvedEntityId) {
+      return (
+        <div className={cn(containerClasses, "flex items-center justify-center bg-secondary")}>
+          <div className="text-center">
+            <Camera className={cn("mx-auto mb-2 text-muted-foreground/50", iconSize)} />
+            <p className="text-muted-foreground text-sm">No camera linked</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (hasError) {
+      return (
+        <div className={cn(containerClasses, "flex items-center justify-center bg-secondary")}>
+          <div className="text-center">
+            <Camera className={cn("mx-auto mb-2 text-destructive/50", iconSize)} />
+            <p className="text-destructive text-sm">Failed to load</p>
+            <button
+              onClick={handleRefresh}
+              className="mt-2 p-2 rounded-lg bg-background/50 hover:bg-background/80 transition-colors"
+            >
+              <RefreshCw className="w-4 h-4 text-foreground" />
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (viewMode === "live") {
+      const streamUrl = getCameraUrl();
+      return (
+        <img
+          src={streamUrl || ""}
+          alt={name}
+          className={cn(containerClasses, "object-cover")}
+          onError={() => setHasError(true)}
+        />
+      );
+    }
+
+    // Snapshot mode
+    if (isLoading && !imageUrl) {
+      return (
+        <div className={cn(containerClasses, "flex items-center justify-center bg-secondary animate-pulse")}>
+          <Camera className={cn("text-muted-foreground/30", iconSize)} />
+        </div>
+      );
+    }
+
+    return (
+      <img
+        src={imageUrl || ""}
+        alt={name}
+        className={cn(containerClasses, "object-cover")}
+        onError={() => setHasError(true)}
+      />
+    );
+  };
 
   // Compact 1x1 layout
   if (isCompact) {
     return (
-      <div className="widget-card p-0 overflow-hidden group h-full">
-        <div className="relative w-full h-full min-h-[120px] bg-gradient-to-br from-secondary to-muted flex items-center justify-center">
-          <Camera className="w-8 h-8 text-muted-foreground/30" />
-          <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent" />
-          
-          <div className="absolute top-2 left-2 flex items-center gap-1">
-            <div
-              className={cn(
-                "status-indicator",
-                isOnline ? "status-online" : "status-offline"
+      <>
+        <div 
+          className={cn(
+            "widget-card p-0 overflow-hidden group h-full",
+            viewMode === "snapshot" && imageUrl && !hasError && "cursor-pointer"
+          )}
+          onClick={handleWidgetClick}
+        >
+          <div className="relative w-full h-full min-h-[120px]">
+            {renderCameraFeed()}
+            <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-background/30" />
+            
+            <div className="absolute top-2 left-2 flex items-center gap-1">
+              <div
+                className={cn(
+                  "status-indicator",
+                  isOnline ? "status-online" : "status-offline"
+                )}
+              />
+              {viewMode === "live" ? (
+                <Video className="w-3 h-3 text-foreground/70" />
+              ) : (
+                <Image className="w-3 h-3 text-foreground/70" />
               )}
-            />
-          </div>
+            </div>
 
-          <div className="absolute bottom-2 left-2 right-2">
-            <h3 className="font-medium text-foreground text-xs truncate">{name}</h3>
+            <div className="absolute bottom-2 left-2 right-2">
+              <h3 className="font-medium text-foreground text-xs truncate drop-shadow-md">{name}</h3>
+            </div>
           </div>
         </div>
-      </div>
+        
+        {/* Expanded Dialog */}
+        <Dialog open={isExpanded} onOpenChange={setIsExpanded}>
+          <DialogContent className="max-w-4xl w-[90vw] h-[80vh] p-0 overflow-hidden">
+            <div className="relative w-full h-full bg-black">
+              {renderCameraFeed(true)}
+              <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
+                <div className="flex items-center gap-2 bg-background/80 backdrop-blur-sm rounded-lg px-3 py-2">
+                  <div
+                    className={cn(
+                      "status-indicator",
+                      isOnline ? "status-online" : "status-offline"
+                    )}
+                  />
+                  <span className="text-foreground font-medium">{name}</span>
+                  {room && <span className="text-muted-foreground">• {room}</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleRefresh}
+                    className="p-2 rounded-lg bg-background/80 backdrop-blur-sm hover:bg-background transition-colors"
+                  >
+                    <RefreshCw className={cn("w-5 h-5 text-foreground", isLoading && "animate-spin")} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </>
     );
   }
 
   // Wide layout (not tall)
   if (isWide && !isTall) {
     return (
-      <div className="widget-card p-0 overflow-hidden group h-full">
-        <div className="relative w-full h-full min-h-[140px] bg-gradient-to-br from-secondary to-muted flex items-center justify-center">
-          <Camera className={cn("text-muted-foreground/30", iconSize)} />
-          <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent" />
+      <>
+        <div 
+          className={cn(
+            "widget-card p-0 overflow-hidden group h-full",
+            viewMode === "snapshot" && imageUrl && !hasError && "cursor-pointer"
+          )}
+          onClick={handleWidgetClick}
+        >
+          <div className="relative w-full h-full min-h-[140px]">
+            {renderCameraFeed()}
+            <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-background/30" />
 
-          <div className={cn("absolute top-3 left-3 flex items-center gap-2", minDim >= 3 && "top-4 left-4")}>
+            <div className={cn("absolute top-3 left-3 flex items-center gap-2", minDim >= 3 && "top-4 left-4")}>
+              <div
+                className={cn(
+                  "status-indicator",
+                  isOnline ? "status-online" : "status-offline"
+                )}
+              />
+              <span className={cn("text-foreground/80 drop-shadow-md", subtitleSize)}>
+                {viewMode === "live" ? "Live" : "Snapshot"}
+              </span>
+              {viewMode === "live" ? (
+                <Video className="w-4 h-4 text-foreground/70" />
+              ) : (
+                <Image className="w-4 h-4 text-foreground/70" />
+              )}
+            </div>
+
+            <div className={cn("absolute top-3 right-3 flex items-center gap-2", minDim >= 3 && "top-4 right-4")}>
+              {viewMode === "snapshot" && (
+                <button 
+                  onClick={handleRefresh}
+                  className={cn("p-2 rounded-lg bg-background/50 backdrop-blur-sm opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity", minDim >= 3 && "p-3")}
+                >
+                  <RefreshCw className={cn("text-foreground", isLoading && "animate-spin", minDim >= 3 ? "w-5 h-5" : "w-4 h-4")} />
+                </button>
+              )}
+              <button 
+                onClick={(e) => { e.stopPropagation(); setIsExpanded(true); }}
+                className={cn("p-2 rounded-lg bg-background/50 backdrop-blur-sm opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity", minDim >= 3 && "p-3")}
+              >
+                <Maximize2 className={minDim >= 3 ? "w-5 h-5 text-foreground" : "w-4 h-4 text-foreground"} />
+              </button>
+            </div>
+
+            <div className={cn("absolute bottom-3 left-3 right-3", minDim >= 3 && "bottom-4 left-4 right-4")}>
+              <h3 className={cn("font-medium text-foreground drop-shadow-md", titleSize)}>{name}</h3>
+              {room && (
+                <p className={cn("text-muted-foreground drop-shadow-md", subtitleSize)}>{room}</p>
+              )}
+            </div>
+          </div>
+        </div>
+        
+        {/* Expanded Dialog */}
+        <Dialog open={isExpanded} onOpenChange={setIsExpanded}>
+          <DialogContent className="max-w-4xl w-[90vw] h-[80vh] p-0 overflow-hidden">
+            <div className="relative w-full h-full bg-black">
+              {renderCameraFeed(true)}
+              <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
+                <div className="flex items-center gap-2 bg-background/80 backdrop-blur-sm rounded-lg px-3 py-2">
+                  <div
+                    className={cn(
+                      "status-indicator",
+                      isOnline ? "status-online" : "status-offline"
+                    )}
+                  />
+                  <span className="text-foreground font-medium">{name}</span>
+                  {room && <span className="text-muted-foreground">• {room}</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  {viewMode === "snapshot" && (
+                    <button
+                      onClick={handleRefresh}
+                      className="p-2 rounded-lg bg-background/80 backdrop-blur-sm hover:bg-background transition-colors"
+                    >
+                      <RefreshCw className={cn("w-5 h-5 text-foreground", isLoading && "animate-spin")} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+
+  // Tall or Large layout
+  return (
+    <>
+      <div 
+        className={cn(
+          "widget-card p-0 overflow-hidden group h-full",
+          viewMode === "snapshot" && imageUrl && !hasError && "cursor-pointer"
+        )}
+        onClick={handleWidgetClick}
+      >
+        <div className="relative w-full h-full min-h-[200px]">
+          {renderCameraFeed()}
+          <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-background/30" />
+
+          <div className={cn("absolute flex items-center gap-2", padding, "top-0 left-0")}>
             <div
               className={cn(
                 "status-indicator",
                 isOnline ? "status-online" : "status-offline"
               )}
             />
-            <span className={cn("text-foreground/80", subtitleSize)}>
-              {isOnline ? "Live" : "Offline"}
+            <span className={cn("text-foreground/80 drop-shadow-md", subtitleSize)}>
+              {viewMode === "live" ? "Live" : "Snapshot"}
             </span>
+            {viewMode === "live" ? (
+              <Video className="w-4 h-4 text-foreground/70" />
+            ) : (
+              <Image className="w-4 h-4 text-foreground/70" />
+            )}
           </div>
 
-          <button className={cn("absolute top-3 right-3 p-2 rounded-lg bg-background/50 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity", minDim >= 3 && "top-4 right-4 p-3")}>
-            <Maximize2 className={minDim >= 3 ? "w-6 h-6 text-foreground" : "w-4 h-4 text-foreground"} />
-          </button>
+          <div className={cn("absolute flex items-center gap-2", padding, "top-0 right-0")}>
+            {viewMode === "snapshot" && (
+              <button 
+                onClick={handleRefresh}
+                className={cn("p-2 rounded-lg bg-background/50 backdrop-blur-sm opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity", minDim >= 3 && "p-3")}
+              >
+                <RefreshCw className={cn("text-foreground", isLoading && "animate-spin", minDim >= 3 ? "w-5 h-5" : "w-4 h-4")} />
+              </button>
+            )}
+            <button 
+              onClick={(e) => { e.stopPropagation(); setIsExpanded(true); }}
+              className={cn("p-2 rounded-lg bg-background/50 backdrop-blur-sm opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity", minDim >= 3 && "p-3")}
+            >
+              <Maximize2 className={minDim >= 3 ? "w-5 h-5 text-foreground" : "w-4 h-4 text-foreground"} />
+            </button>
+          </div>
 
-          <div className={cn("absolute bottom-3 left-3 right-3", minDim >= 3 && "bottom-4 left-4 right-4")}>
-            <h3 className={cn("font-medium text-foreground", titleSize)}>{name}</h3>
+          <div className={cn("absolute left-0 right-0 bottom-0", padding)}>
+            <h3 className={cn("font-medium text-foreground drop-shadow-md", titleSize)}>{name}</h3>
             {room && (
-              <p className={cn("text-muted-foreground", subtitleSize)}>{room}</p>
+              <p className={cn("text-muted-foreground mt-1 drop-shadow-md", subtitleSize)}>{room}</p>
             )}
           </div>
         </div>
       </div>
-    );
-  }
-
-  // Tall or Large layout
-  return (
-    <div className="widget-card p-0 overflow-hidden group h-full">
-      <div className="relative w-full h-full min-h-[200px] bg-gradient-to-br from-secondary to-muted flex items-center justify-center">
-        <Camera className={cn("text-muted-foreground/30", iconSize)} />
-        <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent" />
-
-        <div className={cn("absolute flex items-center gap-2", padding, "top-0 left-0")}>
-          <div
-            className={cn(
-              "status-indicator",
-              isOnline ? "status-online" : "status-offline"
-            )}
-          />
-          <span className={cn("text-foreground/80", subtitleSize)}>
-            {isOnline ? "Live" : "Offline"}
-          </span>
-        </div>
-
-        <button className={cn("absolute p-2 rounded-lg bg-background/50 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity", padding, "top-0 right-0", minDim >= 3 && "p-3")}>
-          <Maximize2 className={minDim >= 3 ? "w-6 h-6 text-foreground" : "w-4 h-4 text-foreground"} />
-        </button>
-
-        <div className={cn("absolute left-0 right-0 bottom-0", padding)}>
-          <h3 className={cn("font-medium text-foreground", titleSize)}>{name}</h3>
-          {room && (
-            <p className={cn("text-muted-foreground mt-1", subtitleSize)}>{room}</p>
-          )}
-        </div>
-      </div>
-    </div>
+      
+      {/* Expanded Dialog */}
+      <Dialog open={isExpanded} onOpenChange={setIsExpanded}>
+        <DialogContent className="max-w-4xl w-[90vw] h-[80vh] p-0 overflow-hidden">
+          <div className="relative w-full h-full bg-black">
+            {renderCameraFeed(true)}
+            <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
+              <div className="flex items-center gap-2 bg-background/80 backdrop-blur-sm rounded-lg px-3 py-2">
+                <div
+                  className={cn(
+                    "status-indicator",
+                    isOnline ? "status-online" : "status-offline"
+                  )}
+                />
+                <span className="text-foreground font-medium">{name}</span>
+                {room && <span className="text-muted-foreground">• {room}</span>}
+              </div>
+              <div className="flex items-center gap-2">
+                {viewMode === "snapshot" && (
+                  <button
+                    onClick={handleRefresh}
+                    className="p-2 rounded-lg bg-background/80 backdrop-blur-sm hover:bg-background transition-colors"
+                  >
+                    <RefreshCw className={cn("w-5 h-5 text-foreground", isLoading && "animate-spin")} />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };

@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EntityPicker } from "@/components/EntityPicker";
 import { useHomeAssistantContext } from "@/contexts/HomeAssistantContext";
 import { cn } from "@/lib/utils";
-import { Link2, Link2Off, Trash2 } from "lucide-react";
+import { Link2, Link2Off, Trash2, Video, Image } from "lucide-react";
 import { WidgetConfig } from "@/hooks/useGridLayout";
 
 interface EditWidgetDialogProps {
@@ -35,6 +35,9 @@ export const EditWidgetDialog = ({
   const [room, setRoom] = useState("");
   const [entityId, setEntityId] = useState<string | undefined>(undefined);
   const [showEntityPicker, setShowEntityPicker] = useState(false);
+  // Camera-specific settings
+  const [viewMode, setViewMode] = useState<"snapshot" | "live">("snapshot");
+  const [refreshInterval, setRefreshInterval] = useState(10);
 
   // Load widget data when dialog opens
   useEffect(() => {
@@ -43,6 +46,11 @@ export const EditWidgetDialog = ({
       setRoom((widget.props.room as string) || "");
       setEntityId(widget.props.entity_id as string | undefined);
       setShowEntityPicker(false);
+      // Camera settings
+      if (widget.type === "camera") {
+        setViewMode((widget.props.viewMode as "snapshot" | "live") || "snapshot");
+        setRefreshInterval((widget.props.refreshInterval as number) || 10);
+      }
     }
   }, [open, widget]);
 
@@ -51,12 +59,20 @@ export const EditWidgetDialog = ({
   const linkedEntity = entityId ? getEntity(entityId) : undefined;
 
   const handleSave = () => {
-    onSave(widget.id, {
+    const updatedProps: Record<string, unknown> = {
       ...widget.props,
       name,
       room,
       entity_id: entityId,
-    });
+    };
+    
+    // Add camera-specific props
+    if (widget.type === "camera") {
+      updatedProps.viewMode = viewMode;
+      updatedProps.refreshInterval = refreshInterval;
+    }
+    
+    onSave(widget.id, updatedProps);
     onOpenChange(false);
   };
 
@@ -104,6 +120,62 @@ export const EditWidgetDialog = ({
                 placeholder="Room name"
               />
             </div>
+
+            {/* Camera-specific settings */}
+            {widget.type === "camera" && (
+              <div className="space-y-4 pt-2 border-t border-border">
+                <div className="space-y-2">
+                  <Label>View Mode</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("snapshot")}
+                      className={cn(
+                        "flex items-center justify-center gap-2 p-3 rounded-lg border transition-all",
+                        viewMode === "snapshot"
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-secondary border-border active:scale-95"
+                      )}
+                    >
+                      <Image className="w-4 h-4" />
+                      <span className="text-sm font-medium">Snapshot</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("live")}
+                      className={cn(
+                        "flex items-center justify-center gap-2 p-3 rounded-lg border transition-all",
+                        viewMode === "live"
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-secondary border-border active:scale-95"
+                      )}
+                    >
+                      <Video className="w-4 h-4" />
+                      <span className="text-sm font-medium">Live</span>
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {viewMode === "snapshot" 
+                      ? "Shows still images. Tap to view fullscreen." 
+                      : "Shows continuous MJPEG stream."}
+                  </p>
+                </div>
+
+                {viewMode === "snapshot" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="refresh-interval">Refresh Interval (seconds)</Label>
+                    <Input
+                      id="refresh-interval"
+                      type="number"
+                      min={5}
+                      max={300}
+                      value={refreshInterval}
+                      onChange={(e) => setRefreshInterval(Math.max(5, parseInt(e.target.value) || 10))}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Show linked entity info */}
             {linkedEntity && (
