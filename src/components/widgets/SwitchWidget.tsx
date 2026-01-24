@@ -11,6 +11,8 @@ interface SwitchWidgetProps {
   type: DeviceType;
   room?: string;
   entityId?: string;
+  /** Backwards-compatible prop name stored in widget config */
+  entity_id?: string;
   initialState?: boolean;
 }
 
@@ -27,6 +29,7 @@ export const SwitchWidget = ({
   type,
   room,
   entityId,
+  entity_id,
   initialState = false,
 }: SwitchWidgetProps) => {
   const [localIsOn, setLocalIsOn] = useState(initialState);
@@ -34,17 +37,19 @@ export const SwitchWidget = ({
   const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
   const { getEntity, callService, isConnected } = useHomeAssistantContext();
 
+  const resolvedEntityId = entityId ?? entity_id;
+
   // Get live state from Home Assistant
-  const entity = entityId ? getEntity(entityId) : undefined;
+  const entity = resolvedEntityId ? getEntity(resolvedEntityId) : undefined;
   const haIsOn = entity?.state === "on";
 
   // Use HA state if connected and entity exists, otherwise fall back to local state
-  const isOn = entityId && isConnected && entity ? haIsOn : localIsOn;
+  const isOn = resolvedEntityId && isConnected && entity ? haIsOn : localIsOn;
 
   const toggleSwitch = async () => {
-    if (entityId && isConnected) {
-      const domain = entityId.split(".")[0]; // switch, fan, input_boolean, etc.
-      await callService(domain, isOn ? "turn_off" : "turn_on", entityId);
+    if (resolvedEntityId && isConnected) {
+      const domain = resolvedEntityId.split(".")[0]; // switch, fan, input_boolean, etc.
+      await callService(domain, isOn ? "turn_off" : "turn_on", resolvedEntityId);
     } else {
       setLocalIsOn(!localIsOn);
     }

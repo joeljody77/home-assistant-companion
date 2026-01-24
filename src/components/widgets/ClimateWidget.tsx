@@ -11,6 +11,8 @@ interface ClimateWidgetProps {
   humidity?: number;
   mode?: "heating" | "cooling" | "auto" | "off";
   entityId?: string;
+  /** Backwards-compatible prop name stored in widget config */
+  entity_id?: string;
 }
 
 export const ClimateWidget = ({
@@ -20,30 +22,33 @@ export const ClimateWidget = ({
   humidity: initialHumidity = 45,
   mode: initialMode = "auto",
   entityId,
+  entity_id,
 }: ClimateWidgetProps) => {
   const [localTargetTemp, setLocalTargetTemp] = useState(initialTarget);
   const [localMode, setLocalMode] = useState(initialMode);
   const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
   const { getEntity, callService, isConnected } = useHomeAssistantContext();
 
+  const resolvedEntityId = entityId ?? entity_id;
+
   // Get live state from Home Assistant
-  const entity = entityId ? getEntity(entityId) : undefined;
+  const entity = resolvedEntityId ? getEntity(resolvedEntityId) : undefined;
   const haCurrentTemp = entity?.attributes?.current_temperature as number | undefined;
   const haTargetTemp = entity?.attributes?.temperature as number | undefined;
   const haHumidity = entity?.attributes?.current_humidity as number | undefined;
   const haMode = entity?.state as "heating" | "cooling" | "auto" | "off" | undefined;
 
   // Use HA state if connected and entity exists, otherwise fall back to props/local state
-  const currentTemp = entityId && isConnected && entity && haCurrentTemp !== undefined
+  const currentTemp = resolvedEntityId && isConnected && entity && haCurrentTemp !== undefined
     ? haCurrentTemp
     : initialCurrentTemp;
-  const targetTemp = entityId && isConnected && entity && haTargetTemp !== undefined
+  const targetTemp = resolvedEntityId && isConnected && entity && haTargetTemp !== undefined
     ? haTargetTemp
     : localTargetTemp;
-  const humidity = entityId && isConnected && entity && haHumidity !== undefined
+  const humidity = resolvedEntityId && isConnected && entity && haHumidity !== undefined
     ? haHumidity
     : initialHumidity;
-  const mode = entityId && isConnected && entity && haMode
+  const mode = resolvedEntityId && isConnected && entity && haMode
     ? haMode
     : localMode;
 
@@ -60,8 +65,8 @@ export const ClimateWidget = ({
   const incrementTemp = async (e: React.MouseEvent) => {
     e.stopPropagation();
     const newTemp = Math.min(targetTemp + 0.5, 30);
-    if (entityId && isConnected) {
-      await callService("climate", "set_temperature", entityId, {
+    if (resolvedEntityId && isConnected) {
+      await callService("climate", "set_temperature", resolvedEntityId, {
         temperature: newTemp
       });
     } else {
@@ -72,8 +77,8 @@ export const ClimateWidget = ({
   const decrementTemp = async (e: React.MouseEvent) => {
     e.stopPropagation();
     const newTemp = Math.max(targetTemp - 0.5, 16);
-    if (entityId && isConnected) {
-      await callService("climate", "set_temperature", entityId, {
+    if (resolvedEntityId && isConnected) {
+      await callService("climate", "set_temperature", resolvedEntityId, {
         temperature: newTemp
       });
     } else {
@@ -82,12 +87,12 @@ export const ClimateWidget = ({
   };
 
   const handleModeChange = async (newMode: "heating" | "cooling" | "auto" | "off") => {
-    if (entityId && isConnected) {
+    if (resolvedEntityId && isConnected) {
       // Map our mode names to HA hvac_mode names
       const hvacMode = newMode === "heating" ? "heat" 
         : newMode === "cooling" ? "cool" 
         : newMode;
-      await callService("climate", "set_hvac_mode", entityId, {
+      await callService("climate", "set_hvac_mode", resolvedEntityId, {
         hvac_mode: hvacMode
       });
     } else {

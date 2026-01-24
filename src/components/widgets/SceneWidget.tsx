@@ -11,6 +11,8 @@ interface SceneWidgetProps {
   type: SceneType;
   deviceCount?: number;
   entityId?: string;
+  /** Backwards-compatible prop name stored in widget config */
+  entity_id?: string;
 }
 
 const sceneIcons: Record<SceneType, LucideIcon> = {
@@ -34,28 +36,31 @@ export const SceneWidget = ({
   type,
   deviceCount = 5,
   entityId,
+  entity_id,
 }: SceneWidgetProps) => {
   const [localIsActive, setLocalIsActive] = useState(false);
   const Icon = sceneIcons[type];
   const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
   const { getEntity, callService, isConnected } = useHomeAssistantContext();
 
+  const resolvedEntityId = entityId ?? entity_id;
+
   // Get live state from Home Assistant (for scripts/automations that have on/off state)
-  const entity = entityId ? getEntity(entityId) : undefined;
+  const entity = resolvedEntityId ? getEntity(resolvedEntityId) : undefined;
   const haIsActive = entity?.state === "on";
 
   // Use HA state if connected and entity exists, otherwise fall back to local state
-  const isActive = entityId && isConnected && entity ? haIsActive : localIsActive;
+  const isActive = resolvedEntityId && isConnected && entity ? haIsActive : localIsActive;
 
   const activateScene = async () => {
-    if (entityId && isConnected) {
-      const domain = entityId.split(".")[0]; // scene, script, automation
+    if (resolvedEntityId && isConnected) {
+      const domain = resolvedEntityId.split(".")[0]; // scene, script, automation
       if (domain === "scene") {
-        await callService("scene", "turn_on", entityId);
+        await callService("scene", "turn_on", resolvedEntityId);
       } else if (domain === "script") {
-        await callService("script", "turn_on", entityId);
+        await callService("script", "turn_on", resolvedEntityId);
       } else if (domain === "automation") {
-        await callService("automation", "trigger", entityId);
+        await callService("automation", "trigger", resolvedEntityId);
       }
       // Scenes don't have a persistent "active" state, so we briefly show active
       setLocalIsActive(true);
