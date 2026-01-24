@@ -197,19 +197,11 @@ export const ClimateWidget = ({
         `,
       }}
     >
-      {/* Header with AC label */}
-      <div className="flex items-center justify-between px-4 pt-3 pb-2">
+      {/* Header */}
+      <div className="flex items-center justify-center px-4 pt-3 pb-2">
         <span className="text-xs font-medium text-muted-foreground/60 uppercase tracking-wider">
           {name}
         </span>
-        <div className="flex items-center gap-1.5">
-          <span className="text-sm font-medium text-muted-foreground">AC</span>
-          <div className="flex flex-col gap-0.5">
-            <span className="w-1 h-1 rounded-full bg-muted-foreground/50" />
-            <span className="w-1 h-1 rounded-full bg-muted-foreground/50" />
-            <span className="w-1 h-1 rounded-full bg-muted-foreground/50" />
-          </div>
-        </div>
       </div>
 
       {/* Main display area - octagonal frame */}
