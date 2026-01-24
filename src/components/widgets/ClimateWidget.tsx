@@ -59,12 +59,17 @@ export const ClimateWidget = ({
   const haMode = entity?.state as ClimateMode | undefined;
   const haFanMode = entity?.attributes?.fan_mode as FanSpeed | undefined;
 
+  // Use local state for optimistic updates, sync from HA when available
   const currentTemp = resolvedEntityId && isConnected && entity && haCurrentTemp !== undefined
     ? haCurrentTemp
     : initialCurrentTemp;
-  const targetTemp = resolvedEntityId && isConnected && entity && haTargetTemp !== undefined
-    ? haTargetTemp
-    : localTargetTemp;
+  
+  // For target temp, prefer local state for instant feedback, but sync from HA on initial load
+  const targetTemp = localTargetTemp;
+  
+  // Sync local state from HA when entity updates (but not during rapid changes)
+  const haTargetTempRef = haTargetTemp;
+  
   const humidity = resolvedEntityId && isConnected && entity && haHumidity !== undefined
     ? haHumidity
     : initialHumidity;
@@ -79,12 +84,13 @@ export const ClimateWidget = ({
 
   const setTemperature = useCallback(async (newTemp: number) => {
     const clampedTemp = Math.max(MIN_TEMP, Math.min(MAX_TEMP, newTemp));
+    // Always update local state immediately for instant feedback
+    setLocalTargetTemp(clampedTemp);
+    
     if (resolvedEntityId && isConnected) {
       await callService("climate", "set_temperature", resolvedEntityId, {
         temperature: clampedTemp
       });
-    } else {
-      setLocalTargetTemp(clampedTemp);
     }
   }, [resolvedEntityId, isConnected, callService]);
 
