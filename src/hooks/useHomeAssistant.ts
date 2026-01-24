@@ -21,6 +21,25 @@ export interface HAConfig {
   token: string;
 }
 
+// WebSocket message types
+interface WSMessage {
+  type: string;
+  id?: number;
+  ha_version?: string;
+  message?: string;
+  success?: boolean;
+  event?: {
+    event_type: string;
+    data: {
+      entity_id: string;
+      new_state: HAEntity | null;
+      old_state: HAEntity | null;
+    };
+  };
+}
+
+export type WSStatus = "disconnected" | "connecting" | "authenticated";
+
 // Entity domain to widget type mapping
 export const DOMAIN_TO_WIDGET_TYPE: Record<string, string> = {
   light: "light",
@@ -51,7 +70,7 @@ export const WIDGET_TYPE_TO_DOMAINS: Record<string, string[]> = {
 };
 
 const STORAGE_KEY = "home-assistant-config";
-const POLL_INTERVAL = 5000; // 5 seconds
+const RECONNECT_DELAY = 5000;
 
 const loadConfig = (): HAConfig | null => {
   try {
@@ -77,30 +96,49 @@ const saveConfig = (config: HAConfig | null) => {
   }
 };
 
+const getWebSocketUrl = (httpUrl: string): string => {
+  try {
+    const url = new URL(httpUrl);
+    const protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${url.host}/api/websocket`;
+  } catch {
+    return "";
+  }
+};
+
 export const useHomeAssistant = () => {
   const [config, setConfig] = useState<HAConfig | null>(loadConfig);
   const [entities, setEntities] = useState<HAEntity[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [wsStatus, setWsStatus] = useState<WSStatus>("disconnected");
 
-  // Keep polling interval stable and cleaned up
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // WebSocket refs
+  const wsRef = useRef<WebSocket | null>(null);
+  const messageIdRef = useRef(1);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const configRef = useRef(config);
 
-  const stopPolling = useCallback(() => {
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
+  // Keep configRef in sync
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
+
+  // Cancel any pending reconnect
+  const cancelReconnect = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
     }
   }, []);
 
-  // Fetch all entities from Home Assistant
+  // Fetch all entities via REST API (for initial load)
   const fetchEntities = useCallback(
     async (silent = false): Promise<HAEntity[]> => {
       if (!config) return [];
 
       if (!silent) setIsLoading(true);
-      setError(null);
 
       try {
         const response = await fetch(`${config.url}/api/states`, {
@@ -116,12 +154,10 @@ export const useHomeAssistant = () => {
 
         const data: HAEntity[] = await response.json();
         setEntities(data);
-        setIsConnected(true);
         return data;
       } catch (e) {
         const message = e instanceof Error ? e.message : "Connection failed";
-        setError(message);
-        setIsConnected(false);
+        if (!silent) setError(message);
         return [];
       } finally {
         if (!silent) setIsLoading(false);
@@ -130,10 +166,159 @@ export const useHomeAssistant = () => {
     [config]
   );
 
-  // Test connection to Home Assistant
+  // Handle state change events from WebSocket
+  const handleStateChanged = useCallback((data: {
+    entity_id: string;
+    new_state: HAEntity | null;
+    old_state: HAEntity | null;
+  }) => {
+    if (!data.new_state) {
+      // Entity was removed
+      setEntities(prev => prev.filter(e => e.entity_id !== data.entity_id));
+      return;
+    }
+
+    setEntities(prev => {
+      const index = prev.findIndex(e => e.entity_id === data.entity_id);
+      if (index === -1) {
+        // New entity
+        return [...prev, data.new_state!];
+      }
+      // Update existing entity
+      const updated = [...prev];
+      updated[index] = data.new_state!;
+      return updated;
+    });
+  }, []);
+
+  // Subscribe to state changes after authentication
+  const subscribeToStateChanges = useCallback(() => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+    const subscriptionId = messageIdRef.current++;
+    wsRef.current.send(JSON.stringify({
+      id: subscriptionId,
+      type: "subscribe_events",
+      event_type: "state_changed"
+    }));
+    console.log("Subscribed to state_changed events");
+  }, []);
+
+  // Handle incoming WebSocket messages
+  const handleWebSocketMessage = useCallback((message: WSMessage) => {
+    switch (message.type) {
+      case "auth_required":
+        // Send authentication
+        if (wsRef.current && configRef.current) {
+          wsRef.current.send(JSON.stringify({
+            type: "auth",
+            access_token: configRef.current.token
+          }));
+        }
+        break;
+
+      case "auth_ok":
+        console.log("WebSocket authenticated with HA", message.ha_version);
+        setWsStatus("authenticated");
+        setIsConnected(true);
+        setError(null);
+        // Fetch initial states via REST (faster than get_states via WS)
+        fetchEntities(true);
+        // Subscribe to state changes
+        subscribeToStateChanges();
+        break;
+
+      case "auth_invalid":
+        console.error("WebSocket auth failed:", message.message);
+        setError(message.message || "Invalid access token");
+        setIsConnected(false);
+        setWsStatus("disconnected");
+        wsRef.current?.close();
+        break;
+
+      case "event":
+        if (message.event?.event_type === "state_changed" && message.event.data) {
+          handleStateChanged(message.event.data);
+        }
+        break;
+
+      case "result":
+        // Handle command results if needed
+        if (!message.success) {
+          console.warn("WebSocket command failed:", message);
+        }
+        break;
+    }
+  }, [fetchEntities, subscribeToStateChanges, handleStateChanged]);
+
+  // Connect via WebSocket
+  const connectWebSocket = useCallback(() => {
+    if (!configRef.current) return;
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
+
+    // Close any existing connection
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    const wsUrl = getWebSocketUrl(configRef.current.url);
+    if (!wsUrl) {
+      setError("Invalid Home Assistant URL");
+      return;
+    }
+
+    console.log("Connecting to WebSocket:", wsUrl);
+    setWsStatus("connecting");
+    setError(null);
+
+    try {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log("WebSocket connected, awaiting auth challenge");
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data) as WSMessage;
+          handleWebSocketMessage(message);
+        } catch (e) {
+          console.error("Failed to parse WebSocket message:", e);
+        }
+      };
+
+      ws.onerror = (event) => {
+        console.error("WebSocket error:", event);
+      };
+
+      ws.onclose = (event) => {
+        console.log("WebSocket closed:", event.code, event.reason);
+        wsRef.current = null;
+        setWsStatus("disconnected");
+        setIsConnected(false);
+
+        // Auto-reconnect if we have config and weren't intentionally disconnected
+        if (configRef.current && event.code !== 1000) {
+          console.log(`Scheduling reconnect in ${RECONNECT_DELAY}ms...`);
+          reconnectTimeoutRef.current = setTimeout(() => {
+            reconnectTimeoutRef.current = null;
+            connectWebSocket();
+          }, RECONNECT_DELAY);
+        }
+      };
+    } catch (e) {
+      console.error("Failed to create WebSocket:", e);
+      setError(e instanceof Error ? e.message : "WebSocket connection failed");
+      setWsStatus("disconnected");
+    }
+  }, [handleWebSocketMessage]);
+
+  // Test connection to Home Assistant (REST API)
   const testConnection = useCallback(async (url: string, token: string): Promise<{ success: boolean; message: string }> => {
     try {
-      const cleanUrl = url.replace(/\/+$/, ""); // Remove trailing slashes
+      const cleanUrl = url.replace(/\/+$/, "");
       const response = await fetch(`${cleanUrl}/api/`, {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -164,22 +349,29 @@ export const useHomeAssistant = () => {
   const connect = useCallback(async (url: string, token: string) => {
     const cleanUrl = url.replace(/\/+$/, "");
     const newConfig: HAConfig = { url: cleanUrl, token };
-    
+
     saveConfig(newConfig);
     setConfig(newConfig);
-
-    // Initial fetch happens via effect when config changes
+    // WebSocket connection will be triggered by the config change effect
   }, []);
 
   // Disconnect and clear configuration
   const disconnect = useCallback(() => {
-    stopPolling();
+    cancelReconnect();
+
+    // Close WebSocket with normal closure code
+    if (wsRef.current) {
+      wsRef.current.close(1000, "User disconnected");
+      wsRef.current = null;
+    }
+
     saveConfig(null);
     setConfig(null);
     setEntities([]);
     setIsConnected(false);
+    setWsStatus("disconnected");
     setError(null);
-  }, [stopPolling]);
+  }, [cancelReconnect]);
 
   // Get entity by ID
   const getEntity = useCallback((entityId: string): HAEntity | undefined => {
@@ -206,7 +398,7 @@ export const useHomeAssistant = () => {
     return DOMAIN_TO_WIDGET_TYPE[domain] || null;
   }, []);
 
-  // Call a service on an entity
+  // Call a service on an entity (via REST API - more reliable for commands)
   const callService = useCallback(async (
     domain: string,
     service: string,
@@ -228,41 +420,40 @@ export const useHomeAssistant = () => {
         }),
       });
 
-      if (response.ok) {
-        // Immediately refresh after service call (silent)
-        setTimeout(() => {
-          fetchEntities(true);
-        }, 500);
-      }
-
+      // State will update automatically via WebSocket subscription
       return response.ok;
     } catch (e) {
       console.error("Service call failed:", e);
       return false;
     }
-  }, [config, fetchEntities]);
+  }, [config]);
 
-  // Auto-connect + polling lifecycle
+  // WebSocket lifecycle management
   useEffect(() => {
-    stopPolling();
+    cancelReconnect();
 
     if (!config) {
+      // Close any existing connection
+      if (wsRef.current) {
+        wsRef.current.close(1000, "Config cleared");
+        wsRef.current = null;
+      }
       setIsConnected(false);
+      setWsStatus("disconnected");
       return;
     }
 
-    // Initial load
-    fetchEntities(false);
-
-    // Poll silently
-    pollIntervalRef.current = setInterval(() => {
-      fetchEntities(true);
-    }, POLL_INTERVAL);
+    // Connect via WebSocket
+    connectWebSocket();
 
     return () => {
-      stopPolling();
+      cancelReconnect();
+      if (wsRef.current) {
+        wsRef.current.close(1000, "Component unmounting");
+        wsRef.current = null;
+      }
     };
-  }, [config, fetchEntities, stopPolling]);
+  }, [config, connectWebSocket, cancelReconnect]);
 
   return {
     config,
@@ -270,6 +461,7 @@ export const useHomeAssistant = () => {
     isConnected,
     isLoading,
     error,
+    wsStatus,
     testConnection,
     connect,
     disconnect,
