@@ -3,10 +3,12 @@ import { Lightbulb, LightbulbOff } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import { useWidgetSize } from "@/contexts/WidgetSizeContext";
+import { useHomeAssistantContext } from "@/contexts/HomeAssistantContext";
 
 interface LightWidgetProps {
   name: string;
   room?: string;
+  entityId?: string;
   initialState?: boolean;
   initialBrightness?: number;
 }
@@ -14,14 +16,58 @@ interface LightWidgetProps {
 export const LightWidget = ({
   name,
   room,
+  entityId,
   initialState = false,
   initialBrightness = 80,
 }: LightWidgetProps) => {
-  const [isOn, setIsOn] = useState(initialState);
-  const [brightness, setBrightness] = useState(initialBrightness);
+  const [localIsOn, setLocalIsOn] = useState(initialState);
+  const [localBrightness, setLocalBrightness] = useState(initialBrightness);
   const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
+  const { getEntity, callService, isConnected } = useHomeAssistantContext();
 
-  const toggleLight = () => setIsOn(!isOn);
+  // Get live state from Home Assistant
+  const entity = entityId ? getEntity(entityId) : undefined;
+  const haIsOn = entity?.state === "on";
+  const haBrightness = entity?.attributes?.brightness
+    ? Math.round((entity.attributes.brightness as number) / 255 * 100)
+    : initialBrightness;
+
+  // Use HA state if connected and entity exists, otherwise fall back to local state
+  const isOn = entityId && isConnected && entity ? haIsOn : localIsOn;
+  const brightness = entityId && isConnected && entity ? haBrightness : localBrightness;
+
+  const toggleLight = async () => {
+    if (entityId && isConnected) {
+      await callService("light", isOn ? "turn_off" : "turn_on", entityId);
+    } else {
+      setLocalIsOn(!localIsOn);
+    }
+  };
+
+  const handleBrightnessChange = async (value: number[]) => {
+    const newBrightness = value[0];
+    if (entityId && isConnected) {
+      // Convert 0-100 to 0-255 for HA
+      await callService("light", "turn_on", entityId, {
+        brightness: Math.round(newBrightness / 100 * 255)
+      });
+    } else {
+      setLocalBrightness(newBrightness);
+      if (!localIsOn && newBrightness > 0) setLocalIsOn(true);
+    }
+  };
+
+  const handlePresetClick = async (e: React.MouseEvent, preset: number) => {
+    e.stopPropagation();
+    if (entityId && isConnected) {
+      await callService("light", "turn_on", entityId, {
+        brightness: Math.round(preset / 100 * 255)
+      });
+    } else {
+      setLocalBrightness(preset);
+      if (!localIsOn) setLocalIsOn(true);
+    }
+  };
 
   // Calculate dynamic sizes
   const minDim = Math.min(cols, rows);
@@ -120,10 +166,7 @@ export const LightWidget = ({
           </div>
           <Slider
             value={[brightness]}
-            onValueChange={(value) => {
-              setBrightness(value[0]);
-              if (!isOn && value[0] > 0) setIsOn(true);
-            }}
+            onValueChange={handleBrightnessChange}
             max={100}
             step={1}
             disabled={!isOn}
@@ -134,11 +177,7 @@ export const LightWidget = ({
               {[25, 50, 75, 100].map((preset) => (
                 <button
                   key={preset}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setBrightness(preset);
-                    if (!isOn) setIsOn(true);
-                  }}
+                  onClick={(e) => handlePresetClick(e, preset)}
                   className={cn(
                     "py-2 rounded-lg font-medium transition-colors",
                     minDim >= 3 ? "text-base py-3" : "text-xs",

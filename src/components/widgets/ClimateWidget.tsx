@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Thermometer, Droplets, Wind, ChevronUp, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWidgetSize } from "@/contexts/WidgetSizeContext";
+import { useHomeAssistantContext } from "@/contexts/HomeAssistantContext";
 
 interface ClimateWidgetProps {
   name: string;
@@ -9,18 +10,42 @@ interface ClimateWidgetProps {
   targetTemp?: number;
   humidity?: number;
   mode?: "heating" | "cooling" | "auto" | "off";
+  entityId?: string;
 }
 
 export const ClimateWidget = ({
   name,
-  currentTemp,
+  currentTemp: initialCurrentTemp,
   targetTemp: initialTarget = 22,
-  humidity = 45,
+  humidity: initialHumidity = 45,
   mode: initialMode = "auto",
+  entityId,
 }: ClimateWidgetProps) => {
-  const [targetTemp, setTargetTemp] = useState(initialTarget);
-  const [mode, setMode] = useState(initialMode);
+  const [localTargetTemp, setLocalTargetTemp] = useState(initialTarget);
+  const [localMode, setLocalMode] = useState(initialMode);
   const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
+  const { getEntity, callService, isConnected } = useHomeAssistantContext();
+
+  // Get live state from Home Assistant
+  const entity = entityId ? getEntity(entityId) : undefined;
+  const haCurrentTemp = entity?.attributes?.current_temperature as number | undefined;
+  const haTargetTemp = entity?.attributes?.temperature as number | undefined;
+  const haHumidity = entity?.attributes?.current_humidity as number | undefined;
+  const haMode = entity?.state as "heating" | "cooling" | "auto" | "off" | undefined;
+
+  // Use HA state if connected and entity exists, otherwise fall back to props/local state
+  const currentTemp = entityId && isConnected && entity && haCurrentTemp !== undefined
+    ? haCurrentTemp
+    : initialCurrentTemp;
+  const targetTemp = entityId && isConnected && entity && haTargetTemp !== undefined
+    ? haTargetTemp
+    : localTargetTemp;
+  const humidity = entityId && isConnected && entity && haHumidity !== undefined
+    ? haHumidity
+    : initialHumidity;
+  const mode = entityId && isConnected && entity && haMode
+    ? haMode
+    : localMode;
 
   const isActive = mode !== "off";
   const minDim = Math.min(cols, rows);
@@ -32,14 +57,42 @@ export const ClimateWidget = ({
   const targetSize = minDim >= 3 ? "text-4xl" : isLarge ? "text-3xl" : isWide ? "text-xl" : "text-2xl";
   const titleSize = minDim >= 3 ? "text-xl" : isLarge ? "text-lg" : "text-sm";
 
-  const incrementTemp = (e: React.MouseEvent) => {
+  const incrementTemp = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    setTargetTemp((prev) => Math.min(prev + 0.5, 30));
+    const newTemp = Math.min(targetTemp + 0.5, 30);
+    if (entityId && isConnected) {
+      await callService("climate", "set_temperature", entityId, {
+        temperature: newTemp
+      });
+    } else {
+      setLocalTargetTemp(newTemp);
+    }
   };
 
-  const decrementTemp = (e: React.MouseEvent) => {
+  const decrementTemp = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    setTargetTemp((prev) => Math.max(prev - 0.5, 16));
+    const newTemp = Math.max(targetTemp - 0.5, 16);
+    if (entityId && isConnected) {
+      await callService("climate", "set_temperature", entityId, {
+        temperature: newTemp
+      });
+    } else {
+      setLocalTargetTemp(newTemp);
+    }
+  };
+
+  const handleModeChange = async (newMode: "heating" | "cooling" | "auto" | "off") => {
+    if (entityId && isConnected) {
+      // Map our mode names to HA hvac_mode names
+      const hvacMode = newMode === "heating" ? "heat" 
+        : newMode === "cooling" ? "cool" 
+        : newMode;
+      await callService("climate", "set_hvac_mode", entityId, {
+        hvac_mode: hvacMode
+      });
+    } else {
+      setLocalMode(newMode);
+    }
   };
 
   const getModeColor = () => {
@@ -239,7 +292,7 @@ export const ClimateWidget = ({
         {(["off", "heating", "cooling", "auto"] as const).map((m) => (
           <button
             key={m}
-            onClick={() => setMode(m)}
+            onClick={() => handleModeChange(m)}
             className={cn(
               "flex-1 py-2 px-3 rounded-lg font-medium transition-colors capitalize",
               minDim >= 3 ? "text-base py-3" : "text-xs",

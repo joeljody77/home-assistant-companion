@@ -2,20 +2,39 @@ import { useState } from "react";
 import { Lock, Unlock, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWidgetSize } from "@/contexts/WidgetSizeContext";
+import { useHomeAssistantContext } from "@/contexts/HomeAssistantContext";
 
 interface LockWidgetProps {
   name: string;
   room?: string;
+  entityId?: string;
   initialState?: boolean;
 }
 
 export const LockWidget = ({
   name,
   room,
+  entityId,
   initialState = true,
 }: LockWidgetProps) => {
-  const [isLocked, setIsLocked] = useState(initialState);
+  const [localIsLocked, setLocalIsLocked] = useState(initialState);
   const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
+  const { getEntity, callService, isConnected } = useHomeAssistantContext();
+
+  // Get live state from Home Assistant
+  const entity = entityId ? getEntity(entityId) : undefined;
+  const haIsLocked = entity?.state === "locked";
+
+  // Use HA state if connected and entity exists, otherwise fall back to local state
+  const isLocked = entityId && isConnected && entity ? haIsLocked : localIsLocked;
+
+  const toggleLock = async () => {
+    if (entityId && isConnected) {
+      await callService("lock", isLocked ? "unlock" : "lock", entityId);
+    } else {
+      setLocalIsLocked(!localIsLocked);
+    }
+  };
 
   // Calculate dynamic sizes based on actual dimensions
   const iconSize = Math.min(cols, rows) >= 3 ? "w-20 h-20" : isLarge ? "w-14 h-14" : isTall ? "w-10 h-10" : "w-5 h-5";
@@ -27,7 +46,7 @@ export const LockWidget = ({
   if (isCompact) {
     return (
       <button
-        onClick={() => setIsLocked(!isLocked)}
+        onClick={toggleLock}
         className={cn(
           "widget-card text-left w-full h-full flex flex-col",
           !isLocked && "ring-1 ring-warning/50"
@@ -70,7 +89,7 @@ export const LockWidget = ({
   if (isWide && !isTall) {
     return (
       <button
-        onClick={() => setIsLocked(!isLocked)}
+        onClick={toggleLock}
         className={cn(
           "widget-card text-left w-full h-full flex items-center gap-4",
           !isLocked && "ring-1 ring-warning/50"
@@ -113,7 +132,7 @@ export const LockWidget = ({
   // Tall or Large layout - scales with widget size
   return (
     <button
-      onClick={() => setIsLocked(!isLocked)}
+      onClick={toggleLock}
       className={cn(
         "widget-card text-left w-full h-full flex flex-col items-center justify-center gap-4",
         !isLocked && "ring-1 ring-warning/50"

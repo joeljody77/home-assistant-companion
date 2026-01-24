@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 // Types for Home Assistant entities
 export interface HAEntity {
@@ -51,6 +51,7 @@ export const WIDGET_TYPE_TO_DOMAINS: Record<string, string[]> = {
 };
 
 const STORAGE_KEY = "home-assistant-config";
+const POLL_INTERVAL = 5000; // 5 seconds
 
 const loadConfig = (): HAConfig | null => {
   try {
@@ -82,13 +83,16 @@ export const useHomeAssistant = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch all entities from Home Assistant
-  const fetchEntities = useCallback(async (haConfig?: HAConfig) => {
+  const fetchEntities = useCallback(async (haConfig?: HAConfig, silent = false) => {
     const configToUse = haConfig || config;
     if (!configToUse) return [];
 
-    setIsLoading(true);
+    if (!silent) {
+      setIsLoading(true);
+    }
     setError(null);
 
     try {
@@ -113,9 +117,32 @@ export const useHomeAssistant = () => {
       setIsConnected(false);
       return [];
     } finally {
-      setIsLoading(false);
+      if (!silent) {
+        setIsLoading(false);
+      }
     }
   }, [config]);
+
+  // Start polling for entity updates
+  const startPolling = useCallback((haConfig: HAConfig) => {
+    // Clear any existing interval
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
+
+    // Start new polling interval
+    pollIntervalRef.current = setInterval(() => {
+      fetchEntities(haConfig, true); // Silent fetch to avoid loading flicker
+    }, POLL_INTERVAL);
+  }, [fetchEntities]);
+
+  // Stop polling
+  const stopPolling = useCallback(() => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  }, []);
 
   // Test connection to Home Assistant
   const testConnection = useCallback(async (url: string, token: string): Promise<{ success: boolean; message: string }> => {
@@ -156,16 +183,18 @@ export const useHomeAssistant = () => {
     setConfig(newConfig);
     
     await fetchEntities(newConfig);
-  }, [fetchEntities]);
+    startPolling(newConfig);
+  }, [fetchEntities, startPolling]);
 
   // Disconnect and clear configuration
   const disconnect = useCallback(() => {
+    stopPolling();
     saveConfig(null);
     setConfig(null);
     setEntities([]);
     setIsConnected(false);
     setError(null);
-  }, []);
+  }, [stopPolling]);
 
   // Get entity by ID
   const getEntity = useCallback((entityId: string): HAEntity | undefined => {
@@ -214,18 +243,32 @@ export const useHomeAssistant = () => {
         }),
       });
 
+      if (response.ok) {
+        // Immediately fetch updated entities after service call
+        setTimeout(() => fetchEntities(config, true), 500);
+      }
+
       return response.ok;
     } catch (e) {
       console.error("Service call failed:", e);
       return false;
     }
-  }, [config]);
+  }, [config, fetchEntities]);
 
   // Auto-connect on mount if config exists
   useEffect(() => {
     if (config && !isConnected && !isLoading) {
-      fetchEntities();
+      fetchEntities().then(() => {
+        if (config) {
+          startPolling(config);
+        }
+      });
     }
+
+    // Cleanup on unmount
+    return () => {
+      stopPolling();
+    };
   }, []);
 
   return {
