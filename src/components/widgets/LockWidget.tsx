@@ -8,6 +8,8 @@ interface LockWidgetProps {
   name: string;
   room?: string;
   entityId?: string;
+  /** Backwards-compatible prop name stored in widget config */
+  entity_id?: string;
   initialState?: boolean;
 }
 
@@ -15,22 +17,25 @@ export const LockWidget = ({
   name,
   room,
   entityId,
+  entity_id,
   initialState = true,
 }: LockWidgetProps) => {
   const [localIsLocked, setLocalIsLocked] = useState(initialState);
   const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
   const { getEntity, callService, isConnected } = useHomeAssistantContext();
 
+  const resolvedEntityId = entityId ?? entity_id;
+
   // Get live state from Home Assistant
-  const entity = entityId ? getEntity(entityId) : undefined;
+  const entity = resolvedEntityId ? getEntity(resolvedEntityId) : undefined;
   const haIsLocked = entity?.state === "locked";
 
   // Use HA state if connected and entity exists, otherwise fall back to local state
-  const isLocked = entityId && isConnected && entity ? haIsLocked : localIsLocked;
+  const isLocked = resolvedEntityId && isConnected && entity ? haIsLocked : localIsLocked;
 
   const toggleLock = async () => {
-    if (entityId && isConnected) {
-      await callService("lock", isLocked ? "unlock" : "lock", entityId);
+    if (resolvedEntityId && isConnected) {
+      await callService("lock", isLocked ? "unlock" : "lock", resolvedEntityId);
     } else {
       setLocalIsLocked(!localIsLocked);
     }

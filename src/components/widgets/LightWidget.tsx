@@ -9,6 +9,8 @@ interface LightWidgetProps {
   name: string;
   room?: string;
   entityId?: string;
+  /** Backwards-compatible prop name stored in widget config */
+  entity_id?: string;
   initialState?: boolean;
   initialBrightness?: number;
 }
@@ -17,6 +19,7 @@ export const LightWidget = ({
   name,
   room,
   entityId,
+  entity_id,
   initialState = false,
   initialBrightness = 80,
 }: LightWidgetProps) => {
@@ -25,20 +28,22 @@ export const LightWidget = ({
   const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
   const { getEntity, callService, isConnected } = useHomeAssistantContext();
 
+  const resolvedEntityId = entityId ?? entity_id;
+
   // Get live state from Home Assistant
-  const entity = entityId ? getEntity(entityId) : undefined;
+  const entity = resolvedEntityId ? getEntity(resolvedEntityId) : undefined;
   const haIsOn = entity?.state === "on";
   const haBrightness = entity?.attributes?.brightness
     ? Math.round((entity.attributes.brightness as number) / 255 * 100)
     : initialBrightness;
 
   // Use HA state if connected and entity exists, otherwise fall back to local state
-  const isOn = entityId && isConnected && entity ? haIsOn : localIsOn;
-  const brightness = entityId && isConnected && entity ? haBrightness : localBrightness;
+  const isOn = resolvedEntityId && isConnected && entity ? haIsOn : localIsOn;
+  const brightness = resolvedEntityId && isConnected && entity ? haBrightness : localBrightness;
 
   const toggleLight = async () => {
-    if (entityId && isConnected) {
-      await callService("light", isOn ? "turn_off" : "turn_on", entityId);
+    if (resolvedEntityId && isConnected) {
+      await callService("light", isOn ? "turn_off" : "turn_on", resolvedEntityId);
     } else {
       setLocalIsOn(!localIsOn);
     }
@@ -46,9 +51,9 @@ export const LightWidget = ({
 
   const handleBrightnessChange = async (value: number[]) => {
     const newBrightness = value[0];
-    if (entityId && isConnected) {
+    if (resolvedEntityId && isConnected) {
       // Convert 0-100 to 0-255 for HA
-      await callService("light", "turn_on", entityId, {
+      await callService("light", "turn_on", resolvedEntityId, {
         brightness: Math.round(newBrightness / 100 * 255)
       });
     } else {
@@ -59,8 +64,8 @@ export const LightWidget = ({
 
   const handlePresetClick = async (e: React.MouseEvent, preset: number) => {
     e.stopPropagation();
-    if (entityId && isConnected) {
-      await callService("light", "turn_on", entityId, {
+    if (resolvedEntityId && isConnected) {
+      await callService("light", "turn_on", resolvedEntityId, {
         brightness: Math.round(preset / 100 * 255)
       });
     } else {
