@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import { Minus, Plus, Droplets } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWidgetSize } from "@/contexts/WidgetSizeContext";
@@ -28,6 +28,13 @@ const tempToAngle = (temp: number): number => {
   return ARC_START_ANGLE + normalized * ARC_RANGE;
 };
 
+// Convert angle to temperature
+const angleToTemp = (angle: number): number => {
+  const normalized = (angle - ARC_START_ANGLE) / ARC_RANGE;
+  const clamped = Math.max(0, Math.min(1, normalized));
+  return MIN_TEMP + clamped * (MAX_TEMP - MIN_TEMP);
+};
+
 // Convert angle to position on circle
 const angleToPosition = (angle: number, radius: number, cx: number, cy: number) => {
   const radians = (angle - 90) * (Math.PI / 180); // -90 to start from top
@@ -35,6 +42,15 @@ const angleToPosition = (angle: number, radius: number, cx: number, cy: number) 
     x: cx + radius * Math.cos(radians),
     y: cy + radius * Math.sin(radians),
   };
+};
+
+// Convert pointer position to angle
+const positionToAngle = (x: number, y: number, cx: number, cy: number): number => {
+  const dx = x - cx;
+  const dy = y - cy;
+  let angle = Math.atan2(dy, dx) * (180 / Math.PI) + 90; // +90 to start from top
+  if (angle < 0) angle += 360;
+  return angle;
 };
 
 // Create SVG arc path
@@ -67,6 +83,8 @@ export const ClimateWidget = ({
   const { getEntity, callService, isConnected } = useHomeAssistantContext();
 
   const resolvedEntityId = entityId ?? entity_id;
+  const svgRef = useRef<SVGSVGElement>(null);
+  const isDragging = useRef(false);
 
   // Get live state from Home Assistant
   const entity = resolvedEntityId ? getEntity(resolvedEntityId) : undefined;
@@ -92,29 +110,96 @@ export const ClimateWidget = ({
   const isActive = mode !== "off";
   const minDim = Math.min(cols, rows);
 
-  const incrementTemp = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const newTemp = Math.min(targetTemp + 0.5, MAX_TEMP);
+  // SVG arc calculations - defined early for use in callbacks
+  const svgSize = 200;
+  const cx = svgSize / 2;
+  const cy = svgSize / 2;
+  const strokeWidth = 12;
+  const radius = (svgSize - strokeWidth * 2) / 2 - 8;
+  
+  const targetAngle = tempToAngle(targetTemp);
+  const thumbPos = angleToPosition(targetAngle, radius, cx, cy);
+
+  // Background arc (full range)
+  const backgroundArc = describeArc(cx, cy, radius, ARC_START_ANGLE, ARC_END_ANGLE);
+  
+  // Active arc (from start to current target)
+  const activeArc = describeArc(cx, cy, radius, ARC_START_ANGLE, targetAngle);
+
+  // Set temperature (shared by buttons and drag)
+  const setTemperature = useCallback(async (newTemp: number) => {
+    const clampedTemp = Math.max(MIN_TEMP, Math.min(MAX_TEMP, newTemp));
     if (resolvedEntityId && isConnected) {
       await callService("climate", "set_temperature", resolvedEntityId, {
-        temperature: newTemp
+        temperature: clampedTemp
       });
     } else {
-      setLocalTargetTemp(newTemp);
+      setLocalTargetTemp(clampedTemp);
     }
+  }, [resolvedEntityId, isConnected, callService]);
+
+  const incrementTemp = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    await setTemperature(targetTemp + 0.5);
   };
 
   const decrementTemp = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    const newTemp = Math.max(targetTemp - 0.5, MIN_TEMP);
+    await setTemperature(targetTemp - 0.5);
+  };
+
+  // Drag handlers for the thumb
+  const getPointerAngle = useCallback((clientX: number, clientY: number): number => {
+    if (!svgRef.current) return targetAngle;
+    const rect = svgRef.current.getBoundingClientRect();
+    const scale = svgSize / rect.width;
+    const x = (clientX - rect.left) * scale;
+    const y = (clientY - rect.top) * scale;
+    return positionToAngle(x, y, cx, cy);
+  }, [targetAngle, cx, cy, svgSize]);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    isDragging.current = true;
+    (e.target as Element).setPointerCapture(e.pointerId);
+  }, []);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!isDragging.current) return;
+    e.stopPropagation();
+    
+    let angle = getPointerAngle(e.clientX, e.clientY);
+    
+    // Handle wrap-around: angles > 360 need adjustment
+    if (angle < ARC_START_ANGLE && angle < 90) {
+      angle += 360;
+    }
+    
+    // Clamp to arc range
+    if (angle >= ARC_START_ANGLE && angle <= ARC_END_ANGLE) {
+      const newTemp = angleToTemp(angle);
+      // Round to 0.5 degree increments
+      const roundedTemp = Math.round(newTemp * 2) / 2;
+      if (roundedTemp !== targetTemp) {
+        setLocalTargetTemp(roundedTemp);
+      }
+    }
+  }, [getPointerAngle, targetTemp]);
+
+  const handlePointerUp = useCallback(async (e: React.PointerEvent) => {
+    if (!isDragging.current) return;
+    e.stopPropagation();
+    isDragging.current = false;
+    (e.target as Element).releasePointerCapture(e.pointerId);
+    
+    // Commit the final temperature to HA
     if (resolvedEntityId && isConnected) {
       await callService("climate", "set_temperature", resolvedEntityId, {
-        temperature: newTemp
+        temperature: localTargetTemp
       });
-    } else {
-      setLocalTargetTemp(newTemp);
     }
-  };
+  }, [resolvedEntityId, isConnected, callService, localTargetTemp]);
 
   // Get mode color (HSL values from design system)
   const getModeColor = useMemo(() => {
@@ -138,22 +223,6 @@ export const ClimateWidget = ({
       default: return "Off";
     }
   };
-
-  // SVG arc calculations
-  const svgSize = 200;
-  const cx = svgSize / 2;
-  const cy = svgSize / 2;
-  const strokeWidth = 12;
-  const radius = (svgSize - strokeWidth * 2) / 2 - 8;
-  
-  const targetAngle = tempToAngle(targetTemp);
-  const thumbPos = angleToPosition(targetAngle, radius, cx, cy);
-
-  // Background arc (full range)
-  const backgroundArc = describeArc(cx, cy, radius, ARC_START_ANGLE, ARC_END_ANGLE);
-  
-  // Active arc (from start to current target)
-  const activeArc = describeArc(cx, cy, radius, ARC_START_ANGLE, targetAngle);
 
   // Compact 1x1 layout - simplified version
   if (isCompact) {
@@ -215,8 +284,9 @@ export const ClimateWidget = ({
           }}
         >
           <svg
+            ref={svgRef}
             viewBox={`0 0 ${svgSize} ${svgSize}`}
-            className="w-full h-full"
+            className="w-full h-full touch-none"
             style={{ overflow: 'visible' }}
           >
             {/* Background arc */}
@@ -242,17 +312,23 @@ export const ClimateWidget = ({
               />
             )}
             
-            {/* Thumb/handle */}
+            {/* Draggable Thumb/handle */}
             <circle
               cx={thumbPos.x}
               cy={thumbPos.y}
-              r={8}
+              r={12}
               fill="hsl(var(--background))"
               stroke={isActive ? getModeColor : "hsl(var(--muted-foreground))"}
               strokeWidth={3}
+              className="cursor-grab active:cursor-grabbing"
               style={{
                 filter: isActive ? `drop-shadow(0 0 4px ${getModeColor})` : undefined,
+                touchAction: 'none',
               }}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
             />
           </svg>
 
