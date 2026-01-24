@@ -83,78 +83,52 @@ export const useHomeAssistant = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
-  // Use refs for values needed in intervals to avoid stale closures
-  const configRef = useRef(config);
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Keep configRef in sync
-  useEffect(() => {
-    configRef.current = config;
-  }, [config]);
+  // Keep polling interval stable and cleaned up
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Core fetch function that uses refs to avoid stale closures
-  const fetchEntitiesCore = useCallback(async (haConfig: HAConfig, silent = false): Promise<HAEntity[]> => {
-    if (!silent) {
-      setIsLoading(true);
-    }
-    setError(null);
-
-    try {
-      const response = await fetch(`${haConfig.url}/api/states`, {
-        headers: {
-          Authorization: `Bearer ${haConfig.token}`,
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data: HAEntity[] = await response.json();
-      setEntities(data);
-      setIsConnected(true);
-      return data;
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Connection failed";
-      setError(message);
-      setIsConnected(false);
-      return [];
-    } finally {
-      if (!silent) {
-        setIsLoading(false);
-      }
-    }
-  }, []);
-
-  // Public fetch function
-  const fetchEntities = useCallback(async (haConfig?: HAConfig, silent = false) => {
-    const configToUse = haConfig || configRef.current;
-    if (!configToUse) return [];
-    return fetchEntitiesCore(configToUse, silent);
-  }, [fetchEntitiesCore]);
-
-  // Start polling for entity updates
-  const startPolling = useCallback((haConfig: HAConfig) => {
-    // Clear any existing interval
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-    }
-
-    // Start new polling interval
-    pollIntervalRef.current = setInterval(() => {
-      fetchEntitiesCore(haConfig, true);
-    }, POLL_INTERVAL);
-  }, [fetchEntitiesCore]);
-
-  // Stop polling
   const stopPolling = useCallback(() => {
     if (pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current);
       pollIntervalRef.current = null;
     }
   }, []);
+
+  // Fetch all entities from Home Assistant
+  const fetchEntities = useCallback(
+    async (silent = false): Promise<HAEntity[]> => {
+      if (!config) return [];
+
+      if (!silent) setIsLoading(true);
+      setError(null);
+
+      try {
+        const response = await fetch(`${config.url}/api/states`, {
+          headers: {
+            Authorization: `Bearer ${config.token}`,
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data: HAEntity[] = await response.json();
+        setEntities(data);
+        setIsConnected(true);
+        return data;
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Connection failed";
+        setError(message);
+        setIsConnected(false);
+        return [];
+      } finally {
+        if (!silent) setIsLoading(false);
+      }
+    },
+    [config]
+  );
 
   // Test connection to Home Assistant
   const testConnection = useCallback(async (url: string, token: string): Promise<{ success: boolean; message: string }> => {
@@ -193,18 +167,15 @@ export const useHomeAssistant = () => {
     
     saveConfig(newConfig);
     setConfig(newConfig);
-    configRef.current = newConfig;
-    
-    await fetchEntitiesCore(newConfig);
-    startPolling(newConfig);
-  }, [fetchEntitiesCore, startPolling]);
+
+    // Initial fetch happens via effect when config changes
+  }, []);
 
   // Disconnect and clear configuration
   const disconnect = useCallback(() => {
     stopPolling();
     saveConfig(null);
     setConfig(null);
-    configRef.current = null;
     setEntities([]);
     setIsConnected(false);
     setError(null);
@@ -242,14 +213,13 @@ export const useHomeAssistant = () => {
     entityId: string,
     data?: Record<string, unknown>
   ): Promise<boolean> => {
-    const currentConfig = configRef.current;
-    if (!currentConfig) return false;
+    if (!config) return false;
 
     try {
-      const response = await fetch(`${currentConfig.url}/api/services/${domain}/${service}`, {
+      const response = await fetch(`${config.url}/api/services/${domain}/${service}`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${currentConfig.token}`,
+          Authorization: `Bearer ${config.token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -259,11 +229,9 @@ export const useHomeAssistant = () => {
       });
 
       if (response.ok) {
-        // Immediately fetch updated entities after service call
+        // Immediately refresh after service call (silent)
         setTimeout(() => {
-          if (configRef.current) {
-            fetchEntitiesCore(configRef.current, true);
-          }
+          fetchEntities(true);
         }, 500);
       }
 
@@ -272,26 +240,29 @@ export const useHomeAssistant = () => {
       console.error("Service call failed:", e);
       return false;
     }
-  }, [fetchEntitiesCore]);
+  }, [config, fetchEntities]);
 
-  // Auto-connect on mount if config exists
+  // Auto-connect + polling lifecycle
   useEffect(() => {
-    const savedConfig = configRef.current;
-    if (savedConfig) {
-      fetchEntitiesCore(savedConfig).then(() => {
-        if (configRef.current) {
-          startPolling(configRef.current);
-        }
-      });
+    stopPolling();
+
+    if (!config) {
+      setIsConnected(false);
+      return;
     }
 
-    // Cleanup on unmount
+    // Initial load
+    fetchEntities(false);
+
+    // Poll silently
+    pollIntervalRef.current = setInterval(() => {
+      fetchEntities(true);
+    }, POLL_INTERVAL);
+
     return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-      }
+      stopPolling();
     };
-  }, [fetchEntitiesCore, startPolling]);
+  }, [config, fetchEntities, stopPolling]);
 
   return {
     config,
