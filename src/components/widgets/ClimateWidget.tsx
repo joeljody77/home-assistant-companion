@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useCallback } from "react";
-import { Minus, Plus, Droplets } from "lucide-react";
+import { Minus, Plus, Power, Snowflake, Flame, Fan, Droplets } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWidgetSize } from "@/contexts/WidgetSizeContext";
 import { useHomeAssistantContext } from "@/contexts/HomeAssistantContext";
@@ -9,51 +9,45 @@ interface ClimateWidgetProps {
   currentTemp: number;
   targetTemp?: number;
   humidity?: number;
-  mode?: "heating" | "cooling" | "auto" | "off";
+  mode?: "heating" | "cooling" | "auto" | "off" | "fan_only" | "dry";
   entityId?: string;
-  /** Backwards-compatible prop name stored in widget config */
   entity_id?: string;
 }
 
 // Arc configuration
-const ARC_START_ANGLE = 135; // degrees from top (left side)
-const ARC_END_ANGLE = 405; // degrees from top (right side, wraps around)
-const ARC_RANGE = ARC_END_ANGLE - ARC_START_ANGLE; // 270 degrees total
+const ARC_START_ANGLE = 135;
+const ARC_END_ANGLE = 405;
+const ARC_RANGE = ARC_END_ANGLE - ARC_START_ANGLE;
 const MIN_TEMP = 16;
 const MAX_TEMP = 30;
 
-// Convert temperature to angle on the arc
 const tempToAngle = (temp: number): number => {
   const normalized = (temp - MIN_TEMP) / (MAX_TEMP - MIN_TEMP);
   return ARC_START_ANGLE + normalized * ARC_RANGE;
 };
 
-// Convert angle to temperature
 const angleToTemp = (angle: number): number => {
   const normalized = (angle - ARC_START_ANGLE) / ARC_RANGE;
   const clamped = Math.max(0, Math.min(1, normalized));
   return MIN_TEMP + clamped * (MAX_TEMP - MIN_TEMP);
 };
 
-// Convert angle to position on circle
 const angleToPosition = (angle: number, radius: number, cx: number, cy: number) => {
-  const radians = (angle - 90) * (Math.PI / 180); // -90 to start from top
+  const radians = (angle - 90) * (Math.PI / 180);
   return {
     x: cx + radius * Math.cos(radians),
     y: cy + radius * Math.sin(radians),
   };
 };
 
-// Convert pointer position to angle
 const positionToAngle = (x: number, y: number, cx: number, cy: number): number => {
   const dx = x - cx;
   const dy = y - cy;
-  let angle = Math.atan2(dy, dx) * (180 / Math.PI) + 90; // +90 to start from top
+  let angle = Math.atan2(dy, dx) * (180 / Math.PI) + 90;
   if (angle < 0) angle += 360;
   return angle;
 };
 
-// Create SVG arc path
 const describeArc = (
   cx: number,
   cy: number,
@@ -64,36 +58,43 @@ const describeArc = (
   const start = angleToPosition(startAngle, radius, cx, cy);
   const end = angleToPosition(endAngle, radius, cx, cy);
   const largeArcFlag = endAngle - startAngle <= 180 ? 0 : 1;
-
   return `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${end.x} ${end.y}`;
 };
+
+type ClimateMode = "off" | "cooling" | "heating" | "fan_only" | "dry" | "auto";
+
+const MODE_CONFIG: { mode: ClimateMode; icon: typeof Power; label: string }[] = [
+  { mode: "off", icon: Power, label: "Off" },
+  { mode: "cooling", icon: Snowflake, label: "Cool" },
+  { mode: "heating", icon: Flame, label: "Heat" },
+  { mode: "fan_only", icon: Fan, label: "Fan" },
+  { mode: "dry", icon: Droplets, label: "Dry" },
+];
 
 export const ClimateWidget = ({
   name,
   currentTemp: initialCurrentTemp,
   targetTemp: initialTarget = 22,
   humidity: initialHumidity = 45,
-  mode: initialMode = "auto",
+  mode: initialMode = "cooling",
   entityId,
   entity_id,
 }: ClimateWidgetProps) => {
   const [localTargetTemp, setLocalTargetTemp] = useState(initialTarget);
-  const [localMode, setLocalMode] = useState(initialMode);
-  const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
+  const [localMode, setLocalMode] = useState<ClimateMode>(initialMode);
+  const { cols, rows, isCompact } = useWidgetSize();
   const { getEntity, callService, isConnected } = useHomeAssistantContext();
 
   const resolvedEntityId = entityId ?? entity_id;
   const svgRef = useRef<SVGSVGElement>(null);
   const isDragging = useRef(false);
 
-  // Get live state from Home Assistant
   const entity = resolvedEntityId ? getEntity(resolvedEntityId) : undefined;
   const haCurrentTemp = entity?.attributes?.current_temperature as number | undefined;
   const haTargetTemp = entity?.attributes?.temperature as number | undefined;
   const haHumidity = entity?.attributes?.current_humidity as number | undefined;
-  const haMode = entity?.state as "heating" | "cooling" | "auto" | "off" | undefined;
+  const haMode = entity?.state as ClimateMode | undefined;
 
-  // Use HA state if connected and entity exists, otherwise fall back to props/local state
   const currentTemp = resolvedEntityId && isConnected && entity && haCurrentTemp !== undefined
     ? haCurrentTemp
     : initialCurrentTemp;
@@ -110,23 +111,17 @@ export const ClimateWidget = ({
   const isActive = mode !== "off";
   const minDim = Math.min(cols, rows);
 
-  // SVG arc calculations - defined early for use in callbacks
   const svgSize = 200;
   const cx = svgSize / 2;
   const cy = svgSize / 2;
-  const strokeWidth = 12;
-  const radius = (svgSize - strokeWidth * 2) / 2 - 8;
+  const strokeWidth = 14;
+  const radius = (svgSize - strokeWidth * 2) / 2 - 10;
   
   const targetAngle = tempToAngle(targetTemp);
   const thumbPos = angleToPosition(targetAngle, radius, cx, cy);
-
-  // Background arc (full range)
   const backgroundArc = describeArc(cx, cy, radius, ARC_START_ANGLE, ARC_END_ANGLE);
-  
-  // Active arc (from start to current target)
   const activeArc = describeArc(cx, cy, radius, ARC_START_ANGLE, targetAngle);
 
-  // Set temperature (shared by buttons and drag)
   const setTemperature = useCallback(async (newTemp: number) => {
     const clampedTemp = Math.max(MIN_TEMP, Math.min(MAX_TEMP, newTemp));
     if (resolvedEntityId && isConnected) {
@@ -135,6 +130,16 @@ export const ClimateWidget = ({
       });
     } else {
       setLocalTargetTemp(clampedTemp);
+    }
+  }, [resolvedEntityId, isConnected, callService]);
+
+  const setMode = useCallback(async (newMode: ClimateMode) => {
+    if (resolvedEntityId && isConnected) {
+      await callService("climate", "set_hvac_mode", resolvedEntityId, {
+        hvac_mode: newMode
+      });
+    } else {
+      setLocalMode(newMode);
     }
   }, [resolvedEntityId, isConnected, callService]);
 
@@ -148,7 +153,6 @@ export const ClimateWidget = ({
     await setTemperature(targetTemp - 0.5);
   };
 
-  // Drag handlers for the thumb
   const getPointerAngle = useCallback((clientX: number, clientY: number): number => {
     if (!svgRef.current) return targetAngle;
     const rect = svgRef.current.getBoundingClientRect();
@@ -170,16 +174,11 @@ export const ClimateWidget = ({
     e.stopPropagation();
     
     let angle = getPointerAngle(e.clientX, e.clientY);
-    
-    // Handle wrap-around: angles > 360 need adjustment
     if (angle < ARC_START_ANGLE && angle < 90) {
       angle += 360;
     }
-    
-    // Clamp to arc range
     if (angle >= ARC_START_ANGLE && angle <= ARC_END_ANGLE) {
       const newTemp = angleToTemp(angle);
-      // Round to 0.5 degree increments
       const roundedTemp = Math.round(newTemp * 2) / 2;
       if (roundedTemp !== targetTemp) {
         setLocalTargetTemp(roundedTemp);
@@ -193,7 +192,6 @@ export const ClimateWidget = ({
     isDragging.current = false;
     (e.target as Element).releasePointerCapture(e.pointerId);
     
-    // Commit the final temperature to HA
     if (resolvedEntityId && isConnected) {
       await callService("climate", "set_temperature", resolvedEntityId, {
         temperature: localTargetTemp
@@ -201,37 +199,25 @@ export const ClimateWidget = ({
     }
   }, [resolvedEntityId, isConnected, callService, localTargetTemp]);
 
-  // Get mode color (HSL values from design system)
-  const getModeColor = useMemo(() => {
-    switch (mode) {
-      case "heating":
-        return "hsl(24, 95%, 55%)"; // orange
-      case "cooling":
-        return "hsl(199, 89%, 48%)"; // bright blue like reference
-      case "auto":
-        return "hsl(var(--primary))";
-      default:
-        return "hsl(var(--muted-foreground))";
-    }
-  }, [mode]);
+  // Amber/orange glow color like the reference image
+  const glowColor = "hsl(35, 95%, 55%)";
+  const activeColor = isActive ? glowColor : "hsl(var(--muted-foreground))";
 
   const getModeLabel = () => {
     switch (mode) {
       case "heating": return "Heating";
       case "cooling": return "Cooling";
+      case "fan_only": return "Fan";
+      case "dry": return "Dry";
       case "auto": return "Auto";
       default: return "Off";
     }
   };
 
-  // Compact 1x1 layout - simplified version
+  // Compact 1x1 layout
   if (isCompact) {
     return (
-      <div
-        className={cn(
-          "widget-card h-full flex flex-col items-center justify-center relative overflow-hidden"
-        )}
-      >
+      <div className="widget-card h-full flex flex-col items-center justify-center relative overflow-hidden">
         <p className="text-xs text-muted-foreground mb-1 capitalize">{mode}</p>
         <p className="text-2xl font-light text-foreground">{Math.round(targetTemp)}°</p>
         <p className="text-xs text-muted-foreground mt-1 truncate max-w-full px-2">{name}</p>
@@ -245,145 +231,321 @@ export const ClimateWidget = ({
     );
   }
 
-  // Calculate sizing based on widget dimensions
-  const arcScale = minDim >= 3 ? 1 : minDim >= 2 ? 0.7 : 0.5;
-  const tempFontSize = minDim >= 3 ? "text-5xl" : minDim >= 2 ? "text-4xl" : "text-3xl";
-  const modeFontSize = minDim >= 3 ? "text-lg" : "text-sm";
-  const buttonSize = minDim >= 3 ? "w-12 h-12" : "w-10 h-10";
-  const buttonIconSize = minDim >= 3 ? "w-6 h-6" : "w-5 h-5";
+  const arcScale = minDim >= 3 ? 0.85 : minDim >= 2 ? 0.65 : 0.5;
+  const tempFontSize = minDim >= 3 ? "text-4xl" : minDim >= 2 ? "text-3xl" : "text-2xl";
+  const showModeButtons = rows >= 2 && cols >= 2;
+  const showPlusMinus = minDim >= 2;
 
   return (
     <div
-      className={cn(
-        "widget-card h-full flex flex-col items-center justify-between py-4 relative overflow-hidden"
-      )}
+      className="h-full flex flex-col relative overflow-hidden"
+      style={{
+        background: `
+          linear-gradient(145deg, 
+            hsl(220 15% 18%) 0%, 
+            hsl(220 15% 12%) 50%,
+            hsl(220 15% 8%) 100%
+          )
+        `,
+        borderRadius: '16px',
+        boxShadow: `
+          inset 0 1px 0 0 hsl(220 15% 25% / 0.4),
+          inset 0 -1px 0 0 hsl(220 15% 5% / 0.6),
+          0 8px 32px -4px hsl(0 0% 0% / 0.6),
+          0 4px 16px -2px hsl(0 0% 0% / 0.4)
+        `,
+      }}
     >
-      {/* Title */}
-      <h3 className="text-sm font-medium text-muted-foreground truncate max-w-full px-4">
-        {name}
-      </h3>
-
-      {/* Status indicator */}
-      <div
-        className={cn(
-          "absolute top-3 right-3 status-indicator",
-          isActive ? "status-online" : "status-offline"
-        )}
-      />
-
-      {/* Circular Arc Dial */}
-      <div 
-        className="relative flex-1 flex items-center justify-center w-full"
-        style={{ minHeight: 0 }}
-      >
-        <div 
-          className="relative"
-          style={{ 
-            width: `${svgSize * arcScale}px`, 
-            height: `${svgSize * arcScale}px` 
-          }}
-        >
-          <svg
-            ref={svgRef}
-            viewBox={`0 0 ${svgSize} ${svgSize}`}
-            className="w-full h-full touch-none"
-            style={{ overflow: 'visible' }}
-          >
-            {/* Background arc */}
-            <path
-              d={backgroundArc}
-              fill="none"
-              stroke="hsl(var(--secondary))"
-              strokeWidth={strokeWidth}
-              strokeLinecap="round"
-            />
-            
-            {/* Active arc */}
-            {isActive && (
-              <path
-                d={activeArc}
-                fill="none"
-                stroke={getModeColor}
-                strokeWidth={strokeWidth}
-                strokeLinecap="round"
-                style={{
-                  filter: `drop-shadow(0 0 8px ${getModeColor})`,
-                }}
-              />
-            )}
-            
-            {/* Draggable Thumb/handle */}
-            <circle
-              cx={thumbPos.x}
-              cy={thumbPos.y}
-              r={12}
-              fill="hsl(var(--background))"
-              stroke={isActive ? getModeColor : "hsl(var(--muted-foreground))"}
-              strokeWidth={3}
-              className="cursor-grab active:cursor-grabbing"
-              style={{
-                filter: isActive ? `drop-shadow(0 0 4px ${getModeColor})` : undefined,
-                touchAction: 'none',
-              }}
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onPointerCancel={handlePointerUp}
-            />
-          </svg>
-
-          {/* Center content */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span 
-              className={cn("font-medium capitalize", modeFontSize)}
-              style={{ color: getModeColor }}
-            >
-              {getModeLabel()}
-            </span>
-            <div className="flex items-baseline">
-              <span className={cn("font-light text-foreground", tempFontSize)}>
-                {Math.round(targetTemp)}
-              </span>
-              <span className={cn(
-                "font-light text-foreground",
-                minDim >= 3 ? "text-2xl" : "text-xl"
-              )}>
-                °C
-              </span>
-            </div>
-            {humidity !== undefined && (
-              <div className="flex items-center gap-1 text-muted-foreground mt-1">
-                <Droplets className="w-3 h-3" />
-                <span className="text-xs">{humidity}%</span>
-              </div>
-            )}
-          </div>
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 pt-3 pb-1">
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          {name}
+        </span>
+        <div className="flex items-center gap-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30" />
+          <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30" />
+          <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30" />
         </div>
       </div>
 
-      {/* Plus/Minus buttons */}
-      <div className="flex items-center justify-center gap-6">
-        <button
-          onClick={decrementTemp}
-          className={cn(
-            "rounded-full bg-secondary/80 flex items-center justify-center transition-all",
-            "hover:bg-secondary active:scale-95",
-            buttonSize
-          )}
+      {/* Main dial area */}
+      <div className="flex-1 flex items-center justify-center px-4 pb-2" style={{ minHeight: 0 }}>
+        <div
+          className="relative"
+          style={{
+            width: `${svgSize * arcScale}px`,
+            height: `${svgSize * arcScale}px`,
+          }}
         >
-          <Minus className={cn("text-muted-foreground", buttonIconSize)} />
-        </button>
-        <button
-          onClick={incrementTemp}
-          className={cn(
-            "rounded-full bg-secondary/80 flex items-center justify-center transition-all",
-            "hover:bg-secondary active:scale-95",
-            buttonSize
+          {/* Outer metallic bezel */}
+          <div
+            className="absolute inset-0 rounded-full"
+            style={{
+              background: `
+                linear-gradient(145deg, 
+                  hsl(220 10% 28%) 0%,
+                  hsl(220 10% 18%) 30%,
+                  hsl(220 10% 12%) 70%,
+                  hsl(220 10% 22%) 100%
+                )
+              `,
+              boxShadow: `
+                inset 0 2px 4px 0 hsl(220 10% 35% / 0.3),
+                inset 0 -2px 4px 0 hsl(0 0% 0% / 0.4),
+                0 4px 16px -2px hsl(0 0% 0% / 0.5)
+              `,
+            }}
+          />
+
+          {/* Inner recessed dial */}
+          <div
+            className="absolute rounded-full flex items-center justify-center"
+            style={{
+              top: '12%',
+              left: '12%',
+              right: '12%',
+              bottom: '12%',
+              background: `
+                radial-gradient(ellipse at 30% 30%, 
+                  hsl(220 15% 16%) 0%,
+                  hsl(220 15% 10%) 60%,
+                  hsl(220 15% 8%) 100%
+                )
+              `,
+              boxShadow: `
+                inset 0 4px 12px 0 hsl(0 0% 0% / 0.6),
+                inset 0 -2px 8px 0 hsl(220 10% 20% / 0.2)
+              `,
+            }}
+          >
+            {/* Center content */}
+            <div className="flex flex-col items-center justify-center">
+              <span
+                className="text-xs font-medium uppercase tracking-wider"
+                style={{ color: activeColor }}
+              >
+                {getModeLabel()}
+              </span>
+              <div className="flex items-baseline mt-1">
+                <span
+                  className={cn("font-light", tempFontSize)}
+                  style={{ color: activeColor }}
+                >
+                  {Math.round(targetTemp)}
+                </span>
+                <span
+                  className="text-lg font-light ml-0.5"
+                  style={{ color: activeColor }}
+                >
+                  °C
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* SVG Arc overlay */}
+          <svg
+            ref={svgRef}
+            viewBox={`0 0 ${svgSize} ${svgSize}`}
+            className="absolute inset-0 w-full h-full touch-none"
+            style={{ overflow: 'visible' }}
+          >
+            {/* Gradient definitions */}
+            <defs>
+              <linearGradient id="arcGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="hsl(40, 100%, 60%)" />
+                <stop offset="50%" stopColor="hsl(35, 95%, 55%)" />
+                <stop offset="100%" stopColor="hsl(30, 90%, 50%)" />
+              </linearGradient>
+              <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="4" result="coloredBlur" />
+                <feMerge>
+                  <feMergeNode in="coloredBlur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+
+            {/* Background arc (dark groove) */}
+            <path
+              d={backgroundArc}
+              fill="none"
+              stroke="hsl(220 10% 8%)"
+              strokeWidth={strokeWidth}
+              strokeLinecap="round"
+              style={{
+                filter: 'drop-shadow(inset 0 2px 4px hsl(0 0% 0% / 0.5))',
+              }}
+            />
+
+            {/* Active arc with glow */}
+            {isActive && (
+              <>
+                {/* Glow layer */}
+                <path
+                  d={activeArc}
+                  fill="none"
+                  stroke={glowColor}
+                  strokeWidth={strokeWidth + 8}
+                  strokeLinecap="round"
+                  opacity={0.4}
+                  style={{ filter: 'blur(8px)' }}
+                />
+                {/* Main arc */}
+                <path
+                  d={activeArc}
+                  fill="none"
+                  stroke="url(#arcGlow)"
+                  strokeWidth={strokeWidth}
+                  strokeLinecap="round"
+                  filter="url(#glow)"
+                />
+              </>
+            )}
+
+            {/* Thumb indicator (glowing dot) */}
+            {isActive && (
+              <>
+                {/* Outer glow */}
+                <circle
+                  cx={thumbPos.x}
+                  cy={thumbPos.y}
+                  r={14}
+                  fill={glowColor}
+                  opacity={0.5}
+                  style={{ filter: 'blur(6px)' }}
+                />
+                {/* Inner bright dot */}
+                <circle
+                  cx={thumbPos.x}
+                  cy={thumbPos.y}
+                  r={8}
+                  fill="hsl(45, 100%, 75%)"
+                  className="cursor-grab active:cursor-grabbing"
+                  style={{ touchAction: 'none' }}
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  onPointerCancel={handlePointerUp}
+                />
+              </>
+            )}
+          </svg>
+
+          {/* Plus/Minus buttons inside the dial */}
+          {showPlusMinus && (
+            <div
+              className="absolute flex items-center justify-center gap-6"
+              style={{
+                bottom: '18%',
+                left: '50%',
+                transform: 'translateX(-50%)',
+              }}
+            >
+              <button
+                onClick={decrementTemp}
+                className="w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90"
+                style={{
+                  background: `
+                    linear-gradient(145deg, 
+                      hsl(220 10% 20%) 0%,
+                      hsl(220 10% 14%) 100%
+                    )
+                  `,
+                  boxShadow: `
+                    inset 0 1px 2px 0 hsl(220 10% 28% / 0.3),
+                    inset 0 -1px 2px 0 hsl(0 0% 0% / 0.3),
+                    0 2px 6px -1px hsl(0 0% 0% / 0.4)
+                  `,
+                }}
+              >
+                <Minus className="w-4 h-4 text-muted-foreground" />
+              </button>
+              <button
+                onClick={incrementTemp}
+                className="w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90"
+                style={{
+                  background: `
+                    linear-gradient(145deg, 
+                      hsl(220 10% 20%) 0%,
+                      hsl(220 10% 14%) 100%
+                    )
+                  `,
+                  boxShadow: `
+                    inset 0 1px 2px 0 hsl(220 10% 28% / 0.3),
+                    inset 0 -1px 2px 0 hsl(0 0% 0% / 0.3),
+                    0 2px 6px -1px hsl(0 0% 0% / 0.4)
+                  `,
+                }}
+              >
+                <Plus className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </div>
           )}
-        >
-          <Plus className={cn("text-muted-foreground", buttonIconSize)} />
-        </button>
+        </div>
       </div>
+
+      {/* Mode toggle buttons */}
+      {showModeButtons && (
+        <div
+          className="mx-3 mb-3 flex items-center justify-between rounded-lg p-1"
+          style={{
+            background: `
+              linear-gradient(145deg, 
+                hsl(220 10% 12%) 0%,
+                hsl(220 10% 8%) 100%
+              )
+            `,
+            boxShadow: `
+              inset 0 1px 3px 0 hsl(0 0% 0% / 0.4),
+              0 1px 0 0 hsl(220 10% 20% / 0.2)
+            `,
+          }}
+        >
+          {MODE_CONFIG.map(({ mode: m, icon: Icon, label }) => {
+            const isSelected = mode === m;
+            return (
+              <button
+                key={m}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMode(m);
+                }}
+                className={cn(
+                  "flex-1 flex items-center justify-center py-2.5 rounded-md transition-all",
+                  isSelected ? "relative" : "hover:bg-white/5"
+                )}
+                style={
+                  isSelected
+                    ? {
+                        background: `
+                          linear-gradient(145deg, 
+                            hsl(220 10% 18%) 0%,
+                            hsl(220 10% 14%) 100%
+                          )
+                        `,
+                        boxShadow: `
+                          inset 0 1px 2px 0 hsl(220 10% 25% / 0.3),
+                          0 2px 8px -2px hsl(0 0% 0% / 0.4),
+                          0 0 12px 0 ${glowColor}40
+                        `,
+                      }
+                    : undefined
+                }
+                title={label}
+              >
+                <Icon
+                  className="w-4 h-4"
+                  style={{
+                    color: isSelected ? glowColor : 'hsl(var(--muted-foreground))',
+                    filter: isSelected ? `drop-shadow(0 0 4px ${glowColor})` : undefined,
+                  }}
+                />
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
