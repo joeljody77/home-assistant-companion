@@ -96,9 +96,25 @@ export const ClimateWidget = ({
   };
 
 
-  // Amber/gold glow color
-  const glowColor = "hsl(40, 95%, 55%)";
-  const glowColorDim = "hsl(40, 80%, 45%)";
+  // Mode-specific glow colors
+  const getModeColors = () => {
+    switch (mode) {
+      case "cool":
+        return { glow: "hsl(200, 95%, 55%)", dim: "hsl(200, 80%, 45%)" }; // Blue
+      case "heat":
+        return { glow: "hsl(25, 95%, 55%)", dim: "hsl(25, 80%, 45%)" }; // Orange
+      case "fan_only":
+        return { glow: "hsl(145, 85%, 50%)", dim: "hsl(145, 70%, 40%)" }; // Green
+      case "dry":
+        return { glow: "hsl(45, 95%, 55%)", dim: "hsl(45, 80%, 45%)" }; // Yellow
+      case "auto":
+        return { glow: "hsl(280, 85%, 60%)", dim: "hsl(280, 70%, 50%)" }; // Purple
+      default:
+        return { glow: "hsl(220, 20%, 50%)", dim: "hsl(220, 15%, 40%)" }; // Gray for off
+    }
+  };
+
+  const { glow: glowColor, dim: glowColorDim } = getModeColors();
 
   const getModeLabel = () => {
     switch (mode) {
