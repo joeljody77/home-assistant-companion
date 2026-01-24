@@ -66,7 +66,7 @@ const widgetTypes: WidgetTypeOption[] = [
     type: "camera",
     label: "Camera",
     icon: Camera,
-    defaultProps: { name: "Camera", room: "Room", isOnline: true },
+    defaultProps: { name: "Camera", room: "Room", viewMode: "snapshot", refreshInterval: 10 },
   },
   {
     type: "media",
