@@ -189,18 +189,20 @@ export const ClimateWidget = ({
 
       {/* Main display area - octagonal frame */}
       <div className="flex-1 flex flex-col px-3 pb-2" style={{ minHeight: 0 }}>
-        {/* Glow wrapper - needed because clipPath clips box-shadow */}
-        <div
-          className="flex-1 relative"
-          style={{
-            borderRadius: '12px',
-            boxShadow: isActive ? `
-              0 0 24px 4px ${glowColor}25,
-              0 0 48px 8px ${glowColor}12
-            ` : 'none',
-            transition: 'box-shadow 0.3s ease',
-          }}
-        >
+        <div className="flex-1 relative">
+          {/* Ambient glow layer behind the display */}
+          {isActive && (
+            <div
+              className="absolute -inset-2 pointer-events-none"
+              style={{
+                background: `radial-gradient(ellipse at 50% 50%, ${glowColor}40 0%, ${glowColor}20 40%, transparent 70%)`,
+                filter: 'blur(12px)',
+                borderRadius: '20px',
+              }}
+            />
+          )}
+          
+          {/* Octagonal frame */}
           <div
             className="absolute inset-0"
             style={{
@@ -229,7 +231,7 @@ export const ClimateWidget = ({
               bottom: '8%',
               background: `
                 radial-gradient(ellipse at 50% 30%, 
-                  hsl(35 40% 12% / ${isActive ? 0.8 : 0}) 0%,
+                  ${glowColor}15 0%,
                   hsl(220 15% 8%) 70%,
                   hsl(220 15% 6%) 100%
                 )
@@ -237,8 +239,8 @@ export const ClimateWidget = ({
               borderRadius: '8px',
               clipPath: 'polygon(6% 0%, 94% 0%, 100% 6%, 100% 94%, 94% 100%, 6% 100%, 0% 94%, 0% 6%)',
               boxShadow: isActive ? `
-                inset 0 0 40px 0 hsl(35 60% 40% / 0.15),
-                inset 0 0 80px 0 hsl(35 60% 30% / 0.1)
+                inset 0 0 40px 0 ${glowColor}15,
+                inset 0 0 80px 0 ${glowColor}08
               ` : `
                 inset 0 4px 12px 0 hsl(0 0% 0% / 0.5)
               `,
