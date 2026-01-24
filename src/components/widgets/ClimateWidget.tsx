@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Thermometer, Droplets, Wind, ChevronUp, ChevronDown } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Minus, Plus, Droplets } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWidgetSize } from "@/contexts/WidgetSizeContext";
 import { useHomeAssistantContext } from "@/contexts/HomeAssistantContext";
@@ -14,6 +14,43 @@ interface ClimateWidgetProps {
   /** Backwards-compatible prop name stored in widget config */
   entity_id?: string;
 }
+
+// Arc configuration
+const ARC_START_ANGLE = 135; // degrees from top (left side)
+const ARC_END_ANGLE = 405; // degrees from top (right side, wraps around)
+const ARC_RANGE = ARC_END_ANGLE - ARC_START_ANGLE; // 270 degrees total
+const MIN_TEMP = 16;
+const MAX_TEMP = 30;
+
+// Convert temperature to angle on the arc
+const tempToAngle = (temp: number): number => {
+  const normalized = (temp - MIN_TEMP) / (MAX_TEMP - MIN_TEMP);
+  return ARC_START_ANGLE + normalized * ARC_RANGE;
+};
+
+// Convert angle to position on circle
+const angleToPosition = (angle: number, radius: number, cx: number, cy: number) => {
+  const radians = (angle - 90) * (Math.PI / 180); // -90 to start from top
+  return {
+    x: cx + radius * Math.cos(radians),
+    y: cy + radius * Math.sin(radians),
+  };
+};
+
+// Create SVG arc path
+const describeArc = (
+  cx: number,
+  cy: number,
+  radius: number,
+  startAngle: number,
+  endAngle: number
+): string => {
+  const start = angleToPosition(startAngle, radius, cx, cy);
+  const end = angleToPosition(endAngle, radius, cx, cy);
+  const largeArcFlag = endAngle - startAngle <= 180 ? 0 : 1;
+
+  return `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${end.x} ${end.y}`;
+};
 
 export const ClimateWidget = ({
   name,
@@ -55,16 +92,9 @@ export const ClimateWidget = ({
   const isActive = mode !== "off";
   const minDim = Math.min(cols, rows);
 
-  // Calculate dynamic sizes
-  const iconSize = minDim >= 3 ? "w-10 h-10" : isLarge ? "w-7 h-7" : isWide || isTall ? "w-6 h-6" : "w-5 h-5";
-  const iconPadding = minDim >= 3 ? "p-4" : isLarge ? "p-3" : "p-2";
-  const tempSize = minDim >= 4 ? "text-7xl" : minDim >= 3 ? "text-6xl" : isLarge ? "text-5xl" : isTall ? "text-4xl" : isWide ? "text-3xl" : "text-2xl";
-  const targetSize = minDim >= 3 ? "text-4xl" : isLarge ? "text-3xl" : isWide ? "text-xl" : "text-2xl";
-  const titleSize = minDim >= 3 ? "text-xl" : isLarge ? "text-lg" : "text-sm";
-
   const incrementTemp = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    const newTemp = Math.min(targetTemp + 0.5, 30);
+    const newTemp = Math.min(targetTemp + 0.5, MAX_TEMP);
     if (resolvedEntityId && isConnected) {
       await callService("climate", "set_temperature", resolvedEntityId, {
         temperature: newTemp
@@ -76,7 +106,7 @@ export const ClimateWidget = ({
 
   const decrementTemp = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    const newTemp = Math.max(targetTemp - 0.5, 16);
+    const newTemp = Math.max(targetTemp - 0.5, MIN_TEMP);
     if (resolvedEntityId && isConnected) {
       await callService("climate", "set_temperature", resolvedEntityId, {
         temperature: newTemp
@@ -86,229 +116,197 @@ export const ClimateWidget = ({
     }
   };
 
-  const handleModeChange = async (newMode: "heating" | "cooling" | "auto" | "off") => {
-    if (resolvedEntityId && isConnected) {
-      // Map our mode names to HA hvac_mode names
-      const hvacMode = newMode === "heating" ? "heat" 
-        : newMode === "cooling" ? "cool" 
-        : newMode;
-      await callService("climate", "set_hvac_mode", resolvedEntityId, {
-        hvac_mode: hvacMode
-      });
-    } else {
-      setLocalMode(newMode);
-    }
-  };
-
-  const getModeColor = () => {
+  // Get mode color (HSL values from design system)
+  const getModeColor = useMemo(() => {
     switch (mode) {
       case "heating":
-        return "text-orange-400";
+        return "hsl(24, 95%, 55%)"; // orange
       case "cooling":
-        return "text-accent";
+        return "hsl(199, 89%, 48%)"; // bright blue like reference
       case "auto":
-        return "text-primary";
+        return "hsl(var(--primary))";
       default:
-        return "text-muted-foreground";
+        return "hsl(var(--muted-foreground))";
+    }
+  }, [mode]);
+
+  const getModeLabel = () => {
+    switch (mode) {
+      case "heating": return "Heating";
+      case "cooling": return "Cooling";
+      case "auto": return "Auto";
+      default: return "Off";
     }
   };
 
-  // Compact 1x1 layout
+  // SVG arc calculations
+  const svgSize = 200;
+  const cx = svgSize / 2;
+  const cy = svgSize / 2;
+  const strokeWidth = 12;
+  const radius = (svgSize - strokeWidth * 2) / 2 - 8;
+  
+  const targetAngle = tempToAngle(targetTemp);
+  const thumbPos = angleToPosition(targetAngle, radius, cx, cy);
+
+  // Background arc (full range)
+  const backgroundArc = describeArc(cx, cy, radius, ARC_START_ANGLE, ARC_END_ANGLE);
+  
+  // Active arc (from start to current target)
+  const activeArc = describeArc(cx, cy, radius, ARC_START_ANGLE, targetAngle);
+
+  // Compact 1x1 layout - simplified version
   if (isCompact) {
     return (
       <div
         className={cn(
-          "widget-card h-full flex flex-col",
-          isActive && mode === "heating" && "border border-orange-500/20",
-          isActive && mode === "cooling" && "border border-accent/20"
+          "widget-card h-full flex flex-col items-center justify-center relative overflow-hidden"
         )}
       >
-        <div className="flex items-start justify-between mb-2">
-          <div
-            className={cn(
-              "p-2 rounded-xl transition-colors duration-300",
-              isActive ? "bg-primary/20" : "bg-secondary"
-            )}
-          >
-            <Thermometer className={cn("w-5 h-5", getModeColor())} />
-          </div>
-          <div
-            className={cn(
-              "status-indicator",
-              isActive ? "status-online" : "status-offline"
-            )}
-          />
-        </div>
-
-        <div className="flex-1 flex flex-col justify-end">
-          <p className="text-2xl font-light text-foreground">{currentTemp}°</p>
-          <p className="text-xs text-muted-foreground">{name}</p>
-          <p className="text-xs text-muted-foreground capitalize">{mode}</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Wide layout (not tall)
-  if (isWide && !isTall) {
-    return (
-      <div
-        className={cn(
-          "widget-card h-full flex flex-col",
-          isActive && mode === "heating" && "border border-orange-500/20",
-          isActive && mode === "cooling" && "border border-accent/20"
-        )}
-      >
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <div
-              className={cn(
-                "rounded-xl transition-colors duration-300",
-                iconPadding,
-                isActive ? "bg-primary/20" : "bg-secondary"
-              )}
-            >
-              <Thermometer className={cn(iconSize, getModeColor())} />
-            </div>
-            <div>
-              <h3 className={cn("font-medium text-foreground", titleSize)}>{name}</h3>
-              <p className={cn("text-muted-foreground capitalize", minDim >= 3 ? "text-base" : "text-xs")}>{mode}</p>
-            </div>
-          </div>
-          <div
-            className={cn(
-              "status-indicator",
-              isActive ? "status-online" : "status-offline"
-            )}
-          />
-        </div>
-
-        <div className="flex items-center justify-between flex-1">
-          <div>
-            <p className={cn("font-light text-foreground", tempSize)}>{currentTemp}°</p>
-            <p className={cn("text-muted-foreground", minDim >= 3 ? "text-base" : "text-xs")}>Current</p>
-          </div>
-
-          <div className="flex items-center gap-1">
-            <button
-              onClick={decrementTemp}
-              className="p-1 rounded-lg hover:bg-secondary transition-colors"
-            >
-              <ChevronDown className={cn("text-muted-foreground", minDim >= 3 ? "w-6 h-6" : "w-4 h-4")} />
-            </button>
-            <div className="text-center min-w-[50px]">
-              <p className={cn("font-medium", getModeColor(), targetSize)}>{targetTemp}°</p>
-              <p className={cn("text-muted-foreground", minDim >= 3 ? "text-base" : "text-xs")}>Target</p>
-            </div>
-            <button
-              onClick={incrementTemp}
-              className="p-1 rounded-lg hover:bg-secondary transition-colors"
-            >
-              <ChevronUp className={cn("text-muted-foreground", minDim >= 3 ? "w-6 h-6" : "w-4 h-4")} />
-            </button>
-          </div>
-
-          <div className={cn("flex items-center gap-2 text-muted-foreground", minDim >= 3 ? "text-lg" : "text-sm")}>
-            <Droplets className={minDim >= 3 ? "w-5 h-5" : "w-4 h-4"} />
-            <span>{humidity}%</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Large or Tall layout with full controls
-  return (
-    <div
-      className={cn(
-        "widget-card h-full flex flex-col",
-        isActive && mode === "heating" && "border border-orange-500/20",
-        isActive && mode === "cooling" && "border border-accent/20"
-      )}
-    >
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div
-            className={cn(
-              "rounded-xl transition-colors duration-300",
-              iconPadding,
-              isActive ? "bg-primary/20" : "bg-secondary"
-            )}
-          >
-            <Thermometer className={cn(getModeColor(), iconSize)} />
-          </div>
-          <div>
-            <h3 className={cn("font-medium text-foreground", titleSize)}>{name}</h3>
-            <p className={cn("text-muted-foreground capitalize", minDim >= 3 ? "text-base" : "text-sm")}>{mode}</p>
-          </div>
-        </div>
+        <p className="text-xs text-muted-foreground mb-1 capitalize">{mode}</p>
+        <p className="text-2xl font-light text-foreground">{Math.round(targetTemp)}°</p>
+        <p className="text-xs text-muted-foreground mt-1 truncate max-w-full px-2">{name}</p>
         <div
           className={cn(
-            "status-indicator",
+            "absolute top-2 right-2 status-indicator",
             isActive ? "status-online" : "status-offline"
           )}
         />
       </div>
+    );
+  }
 
-      <div className="flex items-center justify-between flex-1">
-        <div className="flex items-center gap-6">
-          <div>
-            <p className={cn("font-light text-foreground", tempSize)}>
-              {currentTemp}°
-            </p>
-            <p className={cn("text-muted-foreground mt-1", minDim >= 3 ? "text-base" : "text-xs")}>Current</p>
-          </div>
+  // Calculate sizing based on widget dimensions
+  const arcScale = minDim >= 3 ? 1 : minDim >= 2 ? 0.7 : 0.5;
+  const tempFontSize = minDim >= 3 ? "text-5xl" : minDim >= 2 ? "text-4xl" : "text-3xl";
+  const modeFontSize = minDim >= 3 ? "text-lg" : "text-sm";
+  const buttonSize = minDim >= 3 ? "w-12 h-12" : "w-10 h-10";
+  const buttonIconSize = minDim >= 3 ? "w-6 h-6" : "w-5 h-5";
 
-          <div className="flex flex-col items-center gap-1">
-            <button
-              onClick={incrementTemp}
-              className="p-1 rounded-lg hover:bg-secondary transition-colors"
+  return (
+    <div
+      className={cn(
+        "widget-card h-full flex flex-col items-center justify-between py-4 relative overflow-hidden"
+      )}
+    >
+      {/* Title */}
+      <h3 className="text-sm font-medium text-muted-foreground truncate max-w-full px-4">
+        {name}
+      </h3>
+
+      {/* Status indicator */}
+      <div
+        className={cn(
+          "absolute top-3 right-3 status-indicator",
+          isActive ? "status-online" : "status-offline"
+        )}
+      />
+
+      {/* Circular Arc Dial */}
+      <div 
+        className="relative flex-1 flex items-center justify-center w-full"
+        style={{ minHeight: 0 }}
+      >
+        <div 
+          className="relative"
+          style={{ 
+            width: `${svgSize * arcScale}px`, 
+            height: `${svgSize * arcScale}px` 
+          }}
+        >
+          <svg
+            viewBox={`0 0 ${svgSize} ${svgSize}`}
+            className="w-full h-full"
+            style={{ overflow: 'visible' }}
+          >
+            {/* Background arc */}
+            <path
+              d={backgroundArc}
+              fill="none"
+              stroke="hsl(var(--secondary))"
+              strokeWidth={strokeWidth}
+              strokeLinecap="round"
+            />
+            
+            {/* Active arc */}
+            {isActive && (
+              <path
+                d={activeArc}
+                fill="none"
+                stroke={getModeColor}
+                strokeWidth={strokeWidth}
+                strokeLinecap="round"
+                style={{
+                  filter: `drop-shadow(0 0 8px ${getModeColor})`,
+                }}
+              />
+            )}
+            
+            {/* Thumb/handle */}
+            <circle
+              cx={thumbPos.x}
+              cy={thumbPos.y}
+              r={8}
+              fill="hsl(var(--background))"
+              stroke={isActive ? getModeColor : "hsl(var(--muted-foreground))"}
+              strokeWidth={3}
+              style={{
+                filter: isActive ? `drop-shadow(0 0 4px ${getModeColor})` : undefined,
+              }}
+            />
+          </svg>
+
+          {/* Center content */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span 
+              className={cn("font-medium capitalize", modeFontSize)}
+              style={{ color: getModeColor }}
             >
-              <ChevronUp className={cn("text-muted-foreground", minDim >= 3 ? "w-7 h-7" : "w-5 h-5")} />
-            </button>
-            <div className="text-center">
-              <p className={cn("font-medium", getModeColor(), targetSize)}>
-                {targetTemp}°
-              </p>
-              <p className={cn("text-muted-foreground", minDim >= 3 ? "text-base" : "text-xs")}>Target</p>
+              {getModeLabel()}
+            </span>
+            <div className="flex items-baseline">
+              <span className={cn("font-light text-foreground", tempFontSize)}>
+                {Math.round(targetTemp)}
+              </span>
+              <span className={cn(
+                "font-light text-foreground",
+                minDim >= 3 ? "text-2xl" : "text-xl"
+              )}>
+                °C
+              </span>
             </div>
-            <button
-              onClick={decrementTemp}
-              className="p-1 rounded-lg hover:bg-secondary transition-colors"
-            >
-              <ChevronDown className={cn("text-muted-foreground", minDim >= 3 ? "w-7 h-7" : "w-5 h-5")} />
-            </button>
-          </div>
-        </div>
-
-        <div className={cn("flex flex-col gap-3", minDim >= 3 && "gap-4")}>
-          <div className={cn("flex items-center gap-2 text-muted-foreground", minDim >= 3 ? "text-lg" : "text-sm")}>
-            <Droplets className={minDim >= 3 ? "w-5 h-5" : "w-4 h-4"} />
-            <span>{humidity}%</span>
-          </div>
-          <div className={cn("flex items-center gap-2 text-muted-foreground", minDim >= 3 ? "text-lg" : "text-sm")}>
-            <Wind className={minDim >= 3 ? "w-5 h-5" : "w-4 h-4"} />
-            <span>Auto</span>
+            {humidity !== undefined && (
+              <div className="flex items-center gap-1 text-muted-foreground mt-1">
+                <Droplets className="w-3 h-3" />
+                <span className="text-xs">{humidity}%</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      <div className={cn("flex gap-2 mt-auto pt-4", minDim >= 3 && "gap-3 pt-6")}>
-        {(["off", "heating", "cooling", "auto"] as const).map((m) => (
-          <button
-            key={m}
-            onClick={() => handleModeChange(m)}
-            className={cn(
-              "flex-1 py-2 px-3 rounded-lg font-medium transition-colors capitalize",
-              minDim >= 3 ? "text-base py-3" : "text-xs",
-              mode === m
-                ? "bg-primary text-primary-foreground"
-                : "bg-secondary text-muted-foreground hover:bg-muted"
-            )}
-          >
-            {m}
-          </button>
-        ))}
+      {/* Plus/Minus buttons */}
+      <div className="flex items-center justify-center gap-6">
+        <button
+          onClick={decrementTemp}
+          className={cn(
+            "rounded-full bg-secondary/80 flex items-center justify-center transition-all",
+            "hover:bg-secondary active:scale-95",
+            buttonSize
+          )}
+        >
+          <Minus className={cn("text-muted-foreground", buttonIconSize)} />
+        </button>
+        <button
+          onClick={incrementTemp}
+          className={cn(
+            "rounded-full bg-secondary/80 flex items-center justify-center transition-all",
+            "hover:bg-secondary active:scale-95",
+            buttonSize
+          )}
+        >
+          <Plus className={cn("text-muted-foreground", buttonIconSize)} />
+        </button>
       </div>
     </div>
   );
