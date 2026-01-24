@@ -9,7 +9,7 @@ interface ClimateWidgetProps {
   currentTemp: number;
   targetTemp?: number;
   humidity?: number;
-  mode?: "heating" | "cooling" | "auto" | "off" | "fan_only" | "dry";
+  mode?: "heat" | "cool" | "auto" | "off" | "fan_only" | "dry";
   entityId?: string;
   entity_id?: string;
 }
@@ -17,12 +17,12 @@ interface ClimateWidgetProps {
 const MIN_TEMP = 16;
 const MAX_TEMP = 30;
 
-type ClimateMode = "off" | "cooling" | "heating" | "fan_only" | "dry" | "auto";
+type ClimateMode = "off" | "cool" | "heat" | "fan_only" | "dry" | "auto";
 
 const MODE_CONFIG: { mode: ClimateMode; icon: typeof Power; label: string }[] = [
   { mode: "off", icon: Power, label: "Off" },
-  { mode: "cooling", icon: Snowflake, label: "Cool" },
-  { mode: "heating", icon: Flame, label: "Heat" },
+  { mode: "cool", icon: Snowflake, label: "Cool" },
+  { mode: "heat", icon: Flame, label: "Heat" },
   { mode: "fan_only", icon: Fan, label: "Fan" },
   { mode: "dry", icon: Droplets, label: "Dry" },
 ];
@@ -32,7 +32,7 @@ export const ClimateWidget = ({
   currentTemp: initialCurrentTemp,
   targetTemp: initialTarget = 22,
   humidity: initialHumidity = 45,
-  mode: initialMode = "cooling",
+  mode: initialMode = "cool",
   entityId,
   entity_id,
 }: ClimateWidgetProps) => {
@@ -147,8 +147,8 @@ export const ClimateWidget = ({
 
   const getModeLabel = () => {
     switch (mode) {
-      case "heating": return "Heating";
-      case "cooling": return "Cooling";
+      case "heat": return "Heating";
+      case "cool": return "Cooling";
       case "fan_only": return "Fan";
       case "dry": return "Dry";
       case "auto": return "Auto";
