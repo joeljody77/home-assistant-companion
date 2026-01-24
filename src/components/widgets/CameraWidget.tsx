@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Camera, Maximize2, Video, Image, RefreshCw, X } from "lucide-react";
+import { Camera, Maximize2, Video, Image, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWidgetSize } from "@/contexts/WidgetSizeContext";
 import { useHomeAssistantContext } from "@/contexts/HomeAssistantContext";
@@ -10,11 +10,14 @@ interface CameraWidgetProps {
   room?: string;
   entityId?: string;
   entity_id?: string;
-  /** 'snapshot' shows a still image (tap to expand), 'live' shows MJPEG stream */
+  /** 'snapshot' shows a still image (tap to expand), 'live' shows fast-refreshing stream */
   viewMode?: "snapshot" | "live";
-  /** Refresh interval for snapshots in seconds (default: 10) */
+  /** Refresh interval for snapshots in seconds (default: 10, live mode uses 1s) */
   refreshInterval?: number;
 }
+
+// Live mode refresh rate in ms
+const LIVE_REFRESH_MS = 1000;
 
 export const CameraWidget = ({
   name,
@@ -28,8 +31,9 @@ export const CameraWidget = ({
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [lastRefresh, setLastRefresh] = useState(Date.now());
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isMountedRef = useRef(true);
+  const previousBlobUrl = useRef<string | null>(null);
   
   const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
   const { getEntity, isConnected, config } = useHomeAssistantContext();
@@ -38,26 +42,13 @@ export const CameraWidget = ({
   const entity = resolvedEntityId ? getEntity(resolvedEntityId) : undefined;
   
   const isOnline = entity?.state !== "unavailable" && entity?.state !== "unknown";
+  
+  // Calculate actual refresh rate based on mode
+  const actualRefreshMs = viewMode === "live" ? LIVE_REFRESH_MS : refreshInterval * 1000;
 
-  // Build the camera URL
-  const getCameraUrl = useCallback((forceRefresh = false) => {
-    if (!config || !resolvedEntityId) return null;
-    
-    const baseUrl = config.url;
-    const token = config.token;
-    
-    if (viewMode === "live") {
-      // MJPEG stream
-      return `${baseUrl}/api/camera_proxy_stream/${resolvedEntityId}?token=${token}`;
-    } else {
-      // Snapshot with cache-busting
-      const timestamp = forceRefresh ? Date.now() : lastRefresh;
-      return `${baseUrl}/api/camera_proxy/${resolvedEntityId}?token=${token}&_t=${timestamp}`;
-    }
-  }, [config, resolvedEntityId, viewMode, lastRefresh]);
-
-  // Fetch snapshot as blob to handle auth properly
+  // Fetch snapshot as blob to handle auth properly (used for both modes)
   const fetchSnapshot = useCallback(async () => {
+    if (!isMountedRef.current) return;
     if (!config || !resolvedEntityId) {
       setHasError(true);
       setIsLoading(false);
@@ -65,7 +56,10 @@ export const CameraWidget = ({
     }
 
     try {
-      setIsLoading(true);
+      // Don't set loading on refresh to avoid flicker
+      if (!imageUrl) {
+        setIsLoading(true);
+      }
       setHasError(false);
       
       const response = await fetch(
@@ -82,56 +76,64 @@ export const CameraWidget = ({
       }
 
       const blob = await response.blob();
+      
+      if (!isMountedRef.current) return;
+      
       const url = URL.createObjectURL(blob);
       
       // Revoke previous URL to prevent memory leaks
-      if (imageUrl) {
-        URL.revokeObjectURL(imageUrl);
+      if (previousBlobUrl.current) {
+        URL.revokeObjectURL(previousBlobUrl.current);
       }
+      previousBlobUrl.current = url;
       
       setImageUrl(url);
       setHasError(false);
     } catch (error) {
+      if (!isMountedRef.current) return;
       console.error("Failed to fetch camera snapshot:", error);
       setHasError(true);
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
     }
-  }, [config, resolvedEntityId]);
+  }, [config, resolvedEntityId, imageUrl]);
 
-  // Initial fetch and refresh timer for snapshots
+  // Initial fetch and refresh timer
   useEffect(() => {
-    if (!isConnected || !resolvedEntityId || viewMode === "live") {
+    isMountedRef.current = true;
+    
+    if (!isConnected || !resolvedEntityId) {
       return;
     }
 
     fetchSnapshot();
 
-    // Set up refresh interval
+    // Set up refresh interval based on mode
     refreshTimerRef.current = setInterval(() => {
-      setLastRefresh(Date.now());
       fetchSnapshot();
-    }, refreshInterval * 1000);
+    }, actualRefreshMs);
 
     return () => {
+      isMountedRef.current = false;
       if (refreshTimerRef.current) {
         clearInterval(refreshTimerRef.current);
       }
     };
-  }, [isConnected, resolvedEntityId, viewMode, refreshInterval, fetchSnapshot]);
+  }, [isConnected, resolvedEntityId, viewMode, actualRefreshMs]);
 
   // Cleanup blob URL on unmount
   useEffect(() => {
     return () => {
-      if (imageUrl) {
-        URL.revokeObjectURL(imageUrl);
+      if (previousBlobUrl.current) {
+        URL.revokeObjectURL(previousBlobUrl.current);
       }
     };
   }, []);
 
   const handleRefresh = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setLastRefresh(Date.now());
     fetchSnapshot();
   };
 
@@ -183,19 +185,7 @@ export const CameraWidget = ({
       );
     }
 
-    if (viewMode === "live") {
-      const streamUrl = getCameraUrl();
-      return (
-        <img
-          src={streamUrl || ""}
-          alt={name}
-          className={cn(containerClasses, "object-cover")}
-          onError={() => setHasError(true)}
-        />
-      );
-    }
-
-    // Snapshot mode
+    // Loading state (for initial load only)
     if (isLoading && !imageUrl) {
       return (
         <div className={cn(containerClasses, "flex items-center justify-center bg-secondary animate-pulse")}>
