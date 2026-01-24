@@ -297,7 +297,7 @@ export const ClimateWidget = ({
 
             {/* Mode label */}
             <span
-              className="text-sm tracking-widest uppercase mt-4"
+              className="text-sm tracking-widest uppercase mt-4 text-center"
               style={{ 
                 fontFamily: 'monospace',
                 fontWeight: 500,
@@ -314,23 +314,10 @@ export const ClimateWidget = ({
             </span>
 
             {/* Temperature display - 7-segment holographic style */}
-            <div className="flex items-start justify-center mt-1 relative">
-              {/* Background ghost segments for depth */}
-              <span
-                className="absolute font-bold leading-none opacity-[0.08]"
-                style={{ 
-                  fontFamily: 'monospace',
-                  fontSize: showFullLayout ? '4rem' : '3rem',
-                  color: 'hsl(var(--foreground))',
-                  letterSpacing: '-0.05em',
-                }}
-              >
-                88
-              </span>
-              
+            <div className="flex items-baseline justify-center mt-1">
               {/* Main temperature digits */}
               <span
-                className="font-bold leading-none relative"
+                className="font-bold leading-none"
                 style={{ 
                   fontFamily: 'monospace',
                   fontSize: showFullLayout ? '4rem' : '3rem',
@@ -349,7 +336,7 @@ export const ClimateWidget = ({
               
               {/* Degree symbol and unit */}
               <span
-                className="font-bold mt-1 ml-0.5 relative"
+                className="font-bold ml-0.5"
                 style={{ 
                   fontFamily: 'monospace',
                   fontSize: showFullLayout ? '1.5rem' : '1.25rem',
