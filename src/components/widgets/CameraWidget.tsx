@@ -12,12 +12,11 @@ interface CameraWidgetProps {
   entity_id?: string;
   /** 'snapshot' shows a still image (tap to expand), 'live' shows fast-refreshing stream */
   viewMode?: "snapshot" | "live";
-  /** Refresh interval for snapshots in seconds (default: 10, live mode uses 1s) */
+  /** Refresh interval for snapshots in seconds (default: 10) */
   refreshInterval?: number;
+  /** Live mode frames per second (default: 5, max 10) */
+  liveFps?: number;
 }
-
-// Live mode refresh rate in ms
-const LIVE_REFRESH_MS = 1000;
 
 export const CameraWidget = ({
   name,
@@ -26,6 +25,7 @@ export const CameraWidget = ({
   entity_id,
   viewMode = "snapshot",
   refreshInterval = 10,
+  liveFps = 5,
 }: CameraWidgetProps) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -43,8 +43,10 @@ export const CameraWidget = ({
   
   const isOnline = entity?.state !== "unavailable" && entity?.state !== "unknown";
   
-  // Calculate actual refresh rate based on mode
-  const actualRefreshMs = viewMode === "live" ? LIVE_REFRESH_MS : refreshInterval * 1000;
+  // Calculate actual refresh rate based on mode (live uses FPS, snapshot uses seconds)
+  const actualRefreshMs = viewMode === "live" 
+    ? Math.max(100, Math.round(1000 / Math.min(10, liveFps))) // 100ms min (10fps max)
+    : refreshInterval * 1000;
 
   // Fetch snapshot as blob to handle auth properly (used for both modes)
   const fetchSnapshot = useCallback(async () => {

@@ -38,6 +38,7 @@ export const EditWidgetDialog = ({
   // Camera-specific settings
   const [viewMode, setViewMode] = useState<"snapshot" | "live">("snapshot");
   const [refreshInterval, setRefreshInterval] = useState(10);
+  const [liveFps, setLiveFps] = useState(5);
 
   // Load widget data when dialog opens
   useEffect(() => {
@@ -50,6 +51,7 @@ export const EditWidgetDialog = ({
       if (widget.type === "camera") {
         setViewMode((widget.props.viewMode as "snapshot" | "live") || "snapshot");
         setRefreshInterval((widget.props.refreshInterval as number) || 10);
+        setLiveFps((widget.props.liveFps as number) || 5);
       }
     }
   }, [open, widget]);
@@ -70,6 +72,7 @@ export const EditWidgetDialog = ({
     if (widget.type === "camera") {
       updatedProps.viewMode = viewMode;
       updatedProps.refreshInterval = refreshInterval;
+      updatedProps.liveFps = liveFps;
     }
     
     onSave(widget.id, updatedProps);
@@ -157,11 +160,11 @@ export const EditWidgetDialog = ({
                   <p className="text-xs text-muted-foreground">
                     {viewMode === "snapshot" 
                       ? "Shows still images. Tap to view fullscreen." 
-                      : "Shows continuous MJPEG stream."}
+                      : "Fast-refreshing snapshots for live viewing."}
                   </p>
                 </div>
 
-                {viewMode === "snapshot" && (
+                {viewMode === "snapshot" ? (
                   <div className="space-y-2">
                     <Label htmlFor="refresh-interval">Refresh Interval (seconds)</Label>
                     <Input
@@ -172,6 +175,27 @@ export const EditWidgetDialog = ({
                       value={refreshInterval}
                       onChange={(e) => setRefreshInterval(Math.max(5, parseInt(e.target.value) || 10))}
                     />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="live-fps">Frame Rate (FPS)</Label>
+                    <div className="flex items-center gap-3">
+                      <Input
+                        id="live-fps"
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={liveFps}
+                        onChange={(e) => setLiveFps(Math.min(10, Math.max(1, parseInt(e.target.value) || 5)))}
+                        className="w-20"
+                      />
+                      <span className="text-sm text-muted-foreground">
+                        {liveFps} frame{liveFps !== 1 ? "s" : ""}/sec
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Higher FPS = smoother but uses more bandwidth
+                    </p>
                   </div>
                 )}
               </div>
