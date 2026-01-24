@@ -349,16 +349,16 @@ export const ClimateWidget = ({
 
         {/* Temperature +/- buttons */}
         {showSlider && (
-          <div className="flex items-center justify-center gap-12 mt-3">
+          <div className="flex items-center justify-center gap-24 mt-3">
             {/* Minus button */}
             <button
               onClick={decrementTemp}
-              className="flex items-center justify-center transition-all active:scale-90"
+              className="flex items-center justify-center transition-all active:scale-95"
               style={{
-                width: '80px',
-                height: '48px',
+                width: '120px',
+                height: '44px',
                 background: `linear-gradient(145deg, hsl(220 10% 20%) 0%, hsl(220 10% 12%) 100%)`,
-                borderRadius: '24px',
+                borderRadius: '22px',
                 boxShadow: `
                   inset 0 1px 2px 0 hsl(220 10% 28% / 0.4),
                   inset 0 -2px 2px 0 hsl(0 0% 0% / 0.3),
@@ -372,12 +372,12 @@ export const ClimateWidget = ({
             {/* Plus button */}
             <button
               onClick={incrementTemp}
-              className="flex items-center justify-center transition-all active:scale-90"
+              className="flex items-center justify-center transition-all active:scale-95"
               style={{
-                width: '80px',
-                height: '48px',
+                width: '120px',
+                height: '44px',
                 background: `linear-gradient(145deg, hsl(220 10% 20%) 0%, hsl(220 10% 12%) 100%)`,
-                borderRadius: '24px',
+                borderRadius: '22px',
                 boxShadow: `
                   inset 0 1px 2px 0 hsl(220 10% 28% / 0.4),
                   inset 0 -2px 2px 0 hsl(0 0% 0% / 0.3),
