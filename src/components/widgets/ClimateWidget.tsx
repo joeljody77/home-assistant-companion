@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Minus, Plus, Power, Snowflake, Flame, Fan, Droplets } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWidgetSize } from "@/contexts/WidgetSizeContext";
@@ -16,6 +16,7 @@ interface ClimateWidgetProps {
 
 const MIN_TEMP = 16;
 const MAX_TEMP = 30;
+const DEBOUNCE_DELAY = 500; // ms to wait before sending to HA
 
 type ClimateMode = "off" | "cool" | "heat" | "fan_only" | "dry" | "auto";
 type FanSpeed = "auto" | "high" | "medium" | "low";
@@ -47,10 +48,16 @@ export const ClimateWidget = ({
   const [localTargetTemp, setLocalTargetTemp] = useState(initialTarget);
   const [localMode, setLocalMode] = useState<ClimateMode>(initialMode);
   const [localFanSpeed, setLocalFanSpeed] = useState<FanSpeed>("auto");
+  const [isUserInteracting, setIsUserInteracting] = useState(false);
   const { cols, rows, isCompact } = useWidgetSize();
   const { getEntity, callService, isConnected } = useHomeAssistantContext();
 
   const resolvedEntityId = entityId ?? entity_id;
+  
+  // Refs for debouncing
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingTempRef = useRef<number | null>(null);
+  const interactionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const entity = resolvedEntityId ? getEntity(resolvedEntityId) : undefined;
   const haCurrentTemp = entity?.attributes?.current_temperature as number | undefined;
@@ -59,16 +66,19 @@ export const ClimateWidget = ({
   const haMode = entity?.state as ClimateMode | undefined;
   const haFanMode = entity?.attributes?.fan_mode as FanSpeed | undefined;
 
+  // Sync local state from HA when entity updates (but not during user interaction)
+  useEffect(() => {
+    if (haTargetTemp !== undefined && !isUserInteracting) {
+      setLocalTargetTemp(haTargetTemp);
+    }
+  }, [haTargetTemp, isUserInteracting]);
+
   // Use local state for optimistic updates, sync from HA when available
   const currentTemp = resolvedEntityId && isConnected && entity && haCurrentTemp !== undefined
     ? haCurrentTemp
     : initialCurrentTemp;
   
-  // For target temp, prefer local state for instant feedback, but sync from HA on initial load
   const targetTemp = localTargetTemp;
-  
-  // Sync local state from HA when entity updates (but not during rapid changes)
-  const haTargetTempRef = haTargetTemp;
   
   const humidity = resolvedEntityId && isConnected && entity && haHumidity !== undefined
     ? haHumidity
@@ -82,17 +92,55 @@ export const ClimateWidget = ({
 
   const isActive = mode !== "off";
 
-  const setTemperature = useCallback(async (newTemp: number) => {
-    const clampedTemp = Math.max(MIN_TEMP, Math.min(MAX_TEMP, newTemp));
-    // Always update local state immediately for instant feedback
-    setLocalTargetTemp(clampedTemp);
-    
+  // Debounced HA call - only sends the final temperature after rapid clicks stop
+  const sendToHA = useCallback((temp: number) => {
     if (resolvedEntityId && isConnected) {
-      await callService("climate", "set_temperature", resolvedEntityId, {
-        temperature: clampedTemp
+      callService("climate", "set_temperature", resolvedEntityId, {
+        temperature: temp
       });
     }
   }, [resolvedEntityId, isConnected, callService]);
+
+  const setTemperature = useCallback((newTemp: number) => {
+    const clampedTemp = Math.max(MIN_TEMP, Math.min(MAX_TEMP, newTemp));
+    
+    // Update local state immediately for instant feedback
+    setLocalTargetTemp(clampedTemp);
+    setIsUserInteracting(true);
+    
+    // Store pending temp and reset debounce timer
+    pendingTempRef.current = clampedTemp;
+    
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    
+    // Debounce the HA call
+    debounceTimerRef.current = setTimeout(() => {
+      if (pendingTempRef.current !== null) {
+        sendToHA(pendingTempRef.current);
+        pendingTempRef.current = null;
+      }
+      debounceTimerRef.current = null;
+    }, DEBOUNCE_DELAY);
+    
+    // Reset interaction flag after a delay to allow HA sync
+    if (interactionTimeoutRef.current) {
+      clearTimeout(interactionTimeoutRef.current);
+    }
+    interactionTimeoutRef.current = setTimeout(() => {
+      setIsUserInteracting(false);
+      interactionTimeoutRef.current = null;
+    }, DEBOUNCE_DELAY + 1000); // Wait for HA to respond
+  }, [sendToHA]);
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      if (interactionTimeoutRef.current) clearTimeout(interactionTimeoutRef.current);
+    };
+  }, []);
 
   const setMode = useCallback(async (newMode: ClimateMode) => {
     if (resolvedEntityId && isConnected) {
