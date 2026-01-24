@@ -1,6 +1,6 @@
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { X } from "lucide-react";
+import { X, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { WidgetSize, getWidgetDimensions, GridPosition } from "@/hooks/useGridLayout";
 import { useWidgetResize } from "@/hooks/useWidgetResize";
@@ -20,9 +20,10 @@ interface DraggableGridWidgetProps {
   gridRef: React.RefObject<HTMLDivElement>;
   onResize?: (size: WidgetSize, newPosition: GridPosition, customCols: number, customRows: number) => void;
   onDelete?: () => void;
+  onEdit?: () => void;
 }
 
-export const DraggableGridWidget = ({ 
+export const DraggableGridWidget = ({
   id, 
   children, 
   isEditMode = false, 
@@ -36,6 +37,7 @@ export const DraggableGridWidget = ({
   gridRef,
   onResize,
   onDelete,
+  onEdit,
 }: DraggableGridWidgetProps) => {
   const {
     attributes,
@@ -92,6 +94,12 @@ export const DraggableGridWidget = ({
     onDelete?.();
   };
 
+  const handleEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onEdit?.();
+  };
+
   return (
     <div
       ref={setNodeRef}
@@ -108,6 +116,14 @@ export const DraggableGridWidget = ({
       {isEditMode && (
         <>
           <ResizeHandles onResizeStart={handleResizeStart} />
+          {/* Edit button */}
+          <button
+            onClick={handleEdit}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="absolute top-2 left-2 z-10 w-6 h-6 rounded-full bg-primary hover:bg-primary/90 flex items-center justify-center shadow-lg transition-transform hover:scale-110"
+          >
+            <Pencil className="w-3 h-3 text-primary-foreground" />
+          </button>
           {/* Delete button */}
           <button
             onClick={handleDelete}
