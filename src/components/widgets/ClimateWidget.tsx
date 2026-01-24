@@ -96,25 +96,29 @@ export const ClimateWidget = ({
   };
 
 
-  // Mode-specific glow colors
-  const getModeColors = () => {
+  // Dashboard accent color for text/elements
+  const accentColor = "hsl(32, 95%, 55%)"; // Orange accent matching dashboard theme
+  const accentColorDim = "hsl(32, 80%, 45%)";
+
+  // Mode-specific colors for glow effects only
+  const getModeGlowColor = () => {
     switch (mode) {
       case "cool":
-        return { glow: "hsl(200, 95%, 55%)", dim: "hsl(200, 80%, 45%)" }; // Blue
+        return "hsl(200, 95%, 55%)"; // Blue glow
       case "heat":
-        return { glow: "hsl(25, 95%, 55%)", dim: "hsl(25, 80%, 45%)" }; // Orange
+        return "hsl(25, 95%, 55%)"; // Orange glow
       case "fan_only":
-        return { glow: "hsl(145, 85%, 50%)", dim: "hsl(145, 70%, 40%)" }; // Green
+        return "hsl(145, 85%, 50%)"; // Green glow
       case "dry":
-        return { glow: "hsl(45, 95%, 55%)", dim: "hsl(45, 80%, 45%)" }; // Yellow
+        return "hsl(45, 95%, 55%)"; // Yellow glow
       case "auto":
-        return { glow: "hsl(280, 85%, 60%)", dim: "hsl(280, 70%, 50%)" }; // Purple
+        return "hsl(280, 85%, 60%)"; // Purple glow
       default:
-        return { glow: "hsl(220, 20%, 50%)", dim: "hsl(220, 15%, 40%)" }; // Gray for off
+        return "hsl(220, 20%, 50%)"; // Gray glow for off
     }
   };
 
-  const { glow: glowColor, dim: glowColorDim } = getModeColors();
+  const glowColor = getModeGlowColor();
 
   const getModeLabel = () => {
     switch (mode) {
@@ -138,7 +142,7 @@ export const ClimateWidget = ({
         }}
       >
         <p className="text-xs text-muted-foreground mb-1 capitalize">{mode}</p>
-        <p className="text-2xl font-light" style={{ color: isActive ? glowColor : 'hsl(var(--muted-foreground))' }}>
+        <p className="text-2xl font-light" style={{ color: isActive ? accentColor : 'hsl(var(--muted-foreground))' }}>
           {Math.round(targetTemp)}°
         </p>
         <p className="text-xs text-muted-foreground mt-1 truncate max-w-full px-2">{name}</p>
@@ -247,7 +251,7 @@ export const ClimateWidget = ({
             <span
               className="text-sm font-medium tracking-wide mt-4"
               style={{ 
-                color: isActive ? glowColor : 'hsl(var(--muted-foreground))',
+                color: isActive ? accentColor : 'hsl(var(--muted-foreground))',
                 textShadow: isActive ? `0 0 12px ${glowColor}80` : 'none',
               }}
             >
@@ -260,7 +264,7 @@ export const ClimateWidget = ({
                 className="font-light leading-none"
                 style={{ 
                   fontSize: showFullLayout ? '3.5rem' : '2.5rem',
-                  color: isActive ? glowColor : 'hsl(var(--muted-foreground))',
+                  color: isActive ? accentColor : 'hsl(var(--muted-foreground))',
                   textShadow: isActive ? `0 0 20px ${glowColor}60, 0 0 40px ${glowColor}30` : 'none',
                 }}
               >
@@ -270,7 +274,7 @@ export const ClimateWidget = ({
                 className="font-light mt-1"
                 style={{ 
                   fontSize: showFullLayout ? '1.25rem' : '1rem',
-                  color: isActive ? glowColorDim : 'hsl(var(--muted-foreground))',
+                  color: isActive ? accentColorDim : 'hsl(var(--muted-foreground))',
                 }}
               >
                 °C
@@ -369,7 +373,7 @@ export const ClimateWidget = ({
                     "w-5 h-5 relative z-10 transition-all",
                   )}
                   style={{
-                    color: isSelected ? glowColor : 'hsl(var(--muted-foreground))',
+                    color: isSelected ? accentColor : 'hsl(var(--muted-foreground))',
                     filter: isSelected ? `drop-shadow(0 0 6px ${glowColor}) drop-shadow(0 0 12px ${glowColor}80)` : 'none',
                   }}
                 />
