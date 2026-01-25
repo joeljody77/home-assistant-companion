@@ -3,8 +3,8 @@ import { Camera, Maximize2, Video, Image, RefreshCw, Wifi, WifiOff } from "lucid
 import { cn } from "@/lib/utils";
 import { useWidgetSize } from "@/contexts/WidgetSizeContext";
 import { useHomeAssistantContext } from "@/contexts/HomeAssistantContext";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { useWebRTC, WebRTCStatus } from "@/hooks/useWebRTC";
+import { useWebRTC } from "@/hooks/useWebRTC";
+import { CameraExpandedDialog } from "./CameraExpandedDialog";
 
 interface CameraWidgetProps {
   name: string;
@@ -33,6 +33,7 @@ export const CameraWidget = ({
   const [hasError, setHasError] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [effectiveMode, setEffectiveMode] = useState<"snapshot" | "live" | "webrtc">(viewMode);
+  const [isVideoReady, setIsVideoReady] = useState(false);
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isMountedRef = useRef(true);
   const previousBlobUrl = useRef<string | null>(null);
@@ -113,15 +114,15 @@ export const CameraWidget = ({
     }
   }, [config, resolvedEntityId, imageUrl]);
 
-  // Fallback to snapshot polling if WebRTC fails
+  // Fallback to snapshot polling if WebRTC fails after max retries
   useEffect(() => {
-    if (viewMode === "webrtc" && webrtc.status === "failed") {
-      console.log("WebRTC failed, falling back to live polling");
+    if (viewMode === "webrtc" && webrtc.status === "failed" && webrtc.retryCount >= 3) {
+      console.log("WebRTC failed after max retries, falling back to live polling");
       setEffectiveMode("live");
     } else if (viewMode !== "webrtc") {
       setEffectiveMode(viewMode);
     }
-  }, [viewMode, webrtc.status]);
+  }, [viewMode, webrtc.status, webrtc.retryCount]);
 
   // Initial fetch and refresh timer (only for non-WebRTC modes)
   useEffect(() => {
@@ -166,10 +167,23 @@ export const CameraWidget = ({
   };
 
   const handleWidgetClick = () => {
-    if (viewMode === "snapshot" && imageUrl && !hasError) {
+    // Allow tap-to-expand for all modes
+    if (!hasError) {
       setIsExpanded(true);
     }
   };
+
+  // Handle video ready state for smooth transitions
+  const handleVideoCanPlay = useCallback(() => {
+    setIsVideoReady(true);
+  }, []);
+
+  // Reset video ready state when stream changes
+  useEffect(() => {
+    if (webrtc.status === "connecting") {
+      setIsVideoReady(false);
+    }
+  }, [webrtc.status]);
 
   const minDim = Math.min(cols, rows);
   
@@ -181,8 +195,12 @@ export const CameraWidget = ({
 
   // Get mode label
   const getModeLabel = () => {
-    if (effectiveMode === "webrtc" && webrtc.status === "connected") return "WebRTC";
-    if (effectiveMode === "webrtc" && webrtc.status === "connecting") return "Connecting...";
+    if (effectiveMode === "webrtc") {
+      if (webrtc.status === "connected") return "WebRTC";
+      if (webrtc.status === "connecting") {
+        return webrtc.retryCount > 0 ? `Retry ${webrtc.retryCount}/3` : "Connecting...";
+      }
+    }
     if (effectiveMode === "live") return "Live";
     return "Snapshot";
   };
@@ -204,11 +222,9 @@ export const CameraWidget = ({
     );
   };
 
-  // Render camera image/stream
-  const renderCameraFeed = (isDialog = false) => {
-    const containerClasses = isDialog 
-      ? "w-full h-full" 
-      : "absolute inset-0";
+  // Render camera image/stream for widget (not dialog)
+  const renderCameraFeed = () => {
+    const containerClasses = "absolute inset-0";
 
     if (!isConnected || !resolvedEntityId) {
       return (
@@ -219,11 +235,6 @@ export const CameraWidget = ({
           </div>
         </div>
       );
-    }
-
-    // WebRTC error (but not in fallback mode)
-    if (effectiveMode === "webrtc" && webrtc.status === "failed" && viewMode === "webrtc") {
-      // Will fallback to live polling via useEffect
     }
 
     // Snapshot/Live polling error
@@ -245,7 +256,7 @@ export const CameraWidget = ({
     }
 
     // WebRTC mode
-    if (effectiveMode === "webrtc" && webrtc.status !== "failed") {
+    if (effectiveMode === "webrtc" && (webrtc.status !== "failed" || webrtc.retryCount < 3)) {
       return (
         <div className={cn(containerClasses, "bg-secondary")}>
           <video
@@ -253,13 +264,23 @@ export const CameraWidget = ({
             autoPlay
             playsInline
             muted
-            className="w-full h-full object-cover"
+            onCanPlay={handleVideoCanPlay}
+            className={cn(
+              "w-full h-full object-cover transition-opacity duration-300",
+              isVideoReady && webrtc.status === "connected" ? "opacity-100" : "opacity-0"
+            )}
           />
-          {webrtc.status === "connecting" && (
-            <div className="absolute inset-0 flex items-center justify-center bg-secondary/80">
+          {/* Smooth fade overlay while connecting */}
+          {(webrtc.status === "connecting" || !isVideoReady) && (
+            <div className={cn(
+              "absolute inset-0 flex items-center justify-center bg-secondary transition-opacity duration-300",
+              webrtc.status === "connected" && isVideoReady ? "opacity-0 pointer-events-none" : "opacity-100"
+            )}>
               <div className="text-center">
                 <Wifi className="w-8 h-8 mx-auto mb-2 text-primary animate-pulse" />
-                <p className="text-sm text-muted-foreground">Connecting WebRTC...</p>
+                <p className="text-sm text-muted-foreground">
+                  {webrtc.retryCount > 0 ? `Retrying (${webrtc.retryCount}/3)...` : "Connecting..."}
+                </p>
               </div>
             </div>
           )}
@@ -286,14 +307,32 @@ export const CameraWidget = ({
     );
   };
 
+  // Shared expanded dialog component
+  const renderExpandedDialog = () => (
+    <CameraExpandedDialog
+      isOpen={isExpanded}
+      onOpenChange={setIsExpanded}
+      name={name}
+      room={room}
+      isOnline={isOnline}
+      effectiveMode={effectiveMode}
+      webrtcStatus={webrtc.status}
+      webrtcStream={webrtc.stream}
+      webrtcRetryCount={webrtc.retryCount}
+      onReconnect={webrtc.reconnect}
+      imageUrl={imageUrl}
+      isLoading={isLoading}
+      onRefresh={handleRefresh}
+    />
+  );
+
   // Compact 1x1 layout
   if (isCompact) {
     return (
       <>
         <div 
           className={cn(
-            "widget-card p-0 overflow-hidden group h-full",
-            viewMode === "snapshot" && imageUrl && !hasError && "cursor-pointer"
+            "widget-card p-0 overflow-hidden group h-full cursor-pointer"
           )}
           onClick={handleWidgetClick}
         >
@@ -316,35 +355,7 @@ export const CameraWidget = ({
             </div>
           </div>
         </div>
-        
-        {/* Expanded Dialog */}
-        <Dialog open={isExpanded} onOpenChange={setIsExpanded}>
-          <DialogContent className="max-w-4xl w-[90vw] h-[80vh] p-0 overflow-hidden">
-            <div className="relative w-full h-full bg-black">
-              {renderCameraFeed(true)}
-              <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
-                <div className="flex items-center gap-2 bg-background/80 backdrop-blur-sm rounded-lg px-3 py-2">
-                  <div
-                    className={cn(
-                      "status-indicator",
-                      isOnline ? "status-online" : "status-offline"
-                    )}
-                  />
-                  <span className="text-foreground font-medium">{name}</span>
-                  {room && <span className="text-muted-foreground">• {room}</span>}
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleRefresh}
-                    className="p-2 rounded-lg bg-background/80 backdrop-blur-sm hover:bg-background transition-colors"
-                  >
-                    <RefreshCw className={cn("w-5 h-5 text-foreground", isLoading && "animate-spin")} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+        {renderExpandedDialog()}
       </>
     );
   }
@@ -355,8 +366,7 @@ export const CameraWidget = ({
       <>
         <div 
           className={cn(
-            "widget-card p-0 overflow-hidden group h-full",
-            viewMode === "snapshot" && imageUrl && !hasError && "cursor-pointer"
+            "widget-card p-0 overflow-hidden group h-full cursor-pointer"
           )}
           onClick={handleWidgetClick}
         >
@@ -402,37 +412,7 @@ export const CameraWidget = ({
             </div>
           </div>
         </div>
-        
-        {/* Expanded Dialog */}
-        <Dialog open={isExpanded} onOpenChange={setIsExpanded}>
-          <DialogContent className="max-w-4xl w-[90vw] h-[80vh] p-0 overflow-hidden">
-            <div className="relative w-full h-full bg-black">
-              {renderCameraFeed(true)}
-              <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
-                <div className="flex items-center gap-2 bg-background/80 backdrop-blur-sm rounded-lg px-3 py-2">
-                  <div
-                    className={cn(
-                      "status-indicator",
-                      isOnline ? "status-online" : "status-offline"
-                    )}
-                  />
-                  <span className="text-foreground font-medium">{name}</span>
-                  {room && <span className="text-muted-foreground">• {room}</span>}
-                </div>
-                <div className="flex items-center gap-2">
-                  {viewMode === "snapshot" && (
-                    <button
-                      onClick={handleRefresh}
-                      className="p-2 rounded-lg bg-background/80 backdrop-blur-sm hover:bg-background transition-colors"
-                    >
-                      <RefreshCw className={cn("w-5 h-5 text-foreground", isLoading && "animate-spin")} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+        {renderExpandedDialog()}
       </>
     );
   }
@@ -442,8 +422,7 @@ export const CameraWidget = ({
     <>
       <div 
         className={cn(
-          "widget-card p-0 overflow-hidden group h-full",
-          viewMode === "snapshot" && imageUrl && !hasError && "cursor-pointer"
+          "widget-card p-0 overflow-hidden group h-full cursor-pointer"
         )}
         onClick={handleWidgetClick}
       >
@@ -489,37 +468,7 @@ export const CameraWidget = ({
           </div>
         </div>
       </div>
-      
-      {/* Expanded Dialog */}
-      <Dialog open={isExpanded} onOpenChange={setIsExpanded}>
-        <DialogContent className="max-w-4xl w-[90vw] h-[80vh] p-0 overflow-hidden">
-          <div className="relative w-full h-full bg-black">
-            {renderCameraFeed(true)}
-            <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
-              <div className="flex items-center gap-2 bg-background/80 backdrop-blur-sm rounded-lg px-3 py-2">
-                <div
-                  className={cn(
-                    "status-indicator",
-                    isOnline ? "status-online" : "status-offline"
-                  )}
-                />
-                <span className="text-foreground font-medium">{name}</span>
-                {room && <span className="text-muted-foreground">• {room}</span>}
-              </div>
-              <div className="flex items-center gap-2">
-                {viewMode === "snapshot" && (
-                  <button
-                    onClick={handleRefresh}
-                    className="p-2 rounded-lg bg-background/80 backdrop-blur-sm hover:bg-background transition-colors"
-                  >
-                    <RefreshCw className={cn("w-5 h-5 text-foreground", isLoading && "animate-spin")} />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {renderExpandedDialog()}
     </>
   );
 };
