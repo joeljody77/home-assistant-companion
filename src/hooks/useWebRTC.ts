@@ -241,23 +241,34 @@ export const useWebRTC = ({
       }
 
       // Send offer to Home Assistant
-      const response = await sendCommand({
-        type: "camera/web_rtc_offer",
-        entity_id: entityId,
-        offer: pc.localDescription?.sdp,
-      }) as { answer?: string; error?: string };
+      console.log("Sending WebRTC offer to Home Assistant for", entityId);
+      let response: { answer?: string; error?: string; message?: string };
+      try {
+        response = await sendCommand({
+          type: "camera/web_rtc_offer",
+          entity_id: entityId,
+          offer: pc.localDescription?.sdp,
+        }) as { answer?: string; error?: string; message?: string };
+      } catch (cmdErr) {
+        // Log the actual command error for debugging
+        console.error("WebRTC command error:", cmdErr);
+        const cmdMessage = cmdErr instanceof Error ? cmdErr.message : String(cmdErr);
+        throw new Error(`WebRTC signaling failed: ${cmdMessage}`);
+      }
 
       if (!isMountedRef.current) {
         cleanup();
         return;
       }
 
-      if (response?.error) {
-        throw new Error(response.error);
+      console.log("WebRTC response received:", JSON.stringify(response).slice(0, 200));
+
+      if (response?.error || response?.message) {
+        throw new Error(response.error || response.message || "Unknown WebRTC error");
       }
 
       if (!response?.answer) {
-        throw new Error("No WebRTC answer received - go2rtc may not be configured");
+        throw new Error("No WebRTC answer - camera may not support WebRTC (go2rtc required)");
       }
 
       // Set remote description (answer from HA/go2rtc)
@@ -266,12 +277,12 @@ export const useWebRTC = ({
         sdp: response.answer,
       });
 
-      console.log("WebRTC connection established");
+      console.log("WebRTC connection established successfully");
     } catch (err) {
       if (!isMountedRef.current) return;
       
       const message = err instanceof Error ? err.message : "WebRTC connection failed";
-      console.error("WebRTC error:", message);
+      console.error("WebRTC error:", message, err);
       setError(message);
       setStatus("failed");
       cleanup();
@@ -286,11 +297,15 @@ export const useWebRTC = ({
     // Will trigger auto-start via effect
   }, [cleanup]);
 
-  // Auto-retry on failure
+  // Auto-retry on failure - increment counter BEFORE scheduling retry
   useEffect(() => {
     if (status === "failed" && retryCount < MAX_RETRIES && enabled) {
+      const nextRetry = retryCount + 1;
       const delay = RETRY_DELAYS[Math.min(retryCount, RETRY_DELAYS.length - 1)];
-      console.log(`WebRTC retry ${retryCount + 1}/${MAX_RETRIES} in ${delay}ms`);
+      console.log(`WebRTC retry ${nextRetry}/${MAX_RETRIES} in ${delay}ms`);
+      
+      // Increment retry count immediately
+      setRetryCount(nextRetry);
       
       retryTimeoutRef.current = setTimeout(() => {
         if (isMountedRef.current) {
