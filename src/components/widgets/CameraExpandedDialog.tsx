@@ -1,8 +1,10 @@
 import { useRef, useEffect, useCallback, useState } from "react";
-import { RefreshCw, Volume2, VolumeX, Wifi, WifiOff, Video, Image } from "lucide-react";
+import { RefreshCw, Volume2, VolumeX, Wifi, WifiOff, Video, Image, Link, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { WebRTCStatus } from "@/hooks/useWebRTC";
+import { useHlsPlayer } from "@/hooks/useHlsPlayer";
+import { CameraSourceType, CameraViewMode } from "@/types/camera";
 
 interface CameraExpandedDialogProps {
   isOpen: boolean;
@@ -10,7 +12,8 @@ interface CameraExpandedDialogProps {
   name: string;
   room?: string;
   isOnline: boolean;
-  effectiveMode: "snapshot" | "live" | "webrtc";
+  sourceType: CameraSourceType;
+  effectiveMode: CameraViewMode;
   webrtcStatus: WebRTCStatus;
   webrtcStream: MediaStream | null;
   webrtcRetryCount: number;
@@ -18,6 +21,10 @@ interface CameraExpandedDialogProps {
   imageUrl: string | null;
   isLoading: boolean;
   onRefresh: (e: React.MouseEvent) => void;
+  // Stream URL/RTSP props
+  playbackUrl?: string | null;
+  isHls?: boolean;
+  isMjpeg?: boolean;
 }
 
 export const CameraExpandedDialog = ({
@@ -26,6 +33,7 @@ export const CameraExpandedDialog = ({
   name,
   room,
   isOnline,
+  sourceType,
   effectiveMode,
   webrtcStatus,
   webrtcStream,
@@ -34,12 +42,25 @@ export const CameraExpandedDialog = ({
   imageUrl,
   isLoading,
   onRefresh,
+  playbackUrl,
+  isHls = false,
+  isMjpeg = false,
 }: CameraExpandedDialogProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const hlsVideoRef = useRef<HTMLVideoElement>(null);
   const [isMuted, setIsMuted] = useState(true);
   const [isVideoReady, setIsVideoReady] = useState(false);
 
-  // Sync stream to video when dialog opens
+  // HLS player for stream URL/RTSP sources
+  const hlsPlayer = useHlsPlayer({
+    videoRef: hlsVideoRef,
+    url: isOpen && isHls ? playbackUrl || undefined : undefined,
+    enabled: isOpen && effectiveMode === "live" && isHls && !!playbackUrl,
+    autoPlay: true,
+    muted: isMuted,
+  });
+
+  // Sync WebRTC stream to video when dialog opens
   useEffect(() => {
     if (isOpen && videoRef.current && webrtcStream) {
       videoRef.current.srcObject = webrtcStream;
@@ -51,7 +72,7 @@ export const CameraExpandedDialog = ({
   // Reset video ready state when stream changes
   useEffect(() => {
     setIsVideoReady(false);
-  }, [webrtcStream]);
+  }, [webrtcStream, playbackUrl]);
 
   const handleVideoCanPlay = useCallback(() => {
     setIsVideoReady(true);
@@ -61,26 +82,32 @@ export const CameraExpandedDialog = ({
     e.stopPropagation();
     setIsMuted(prev => {
       const newMuted = !prev;
-      if (videoRef.current) {
-        videoRef.current.muted = newMuted;
-      }
+      if (videoRef.current) videoRef.current.muted = newMuted;
+      if (hlsVideoRef.current) hlsVideoRef.current.muted = newMuted;
       return newMuted;
     });
   }, []);
 
   const getModeLabel = () => {
-    if (effectiveMode === "webrtc") {
-      if (webrtcStatus === "connected") return "WebRTC";
-      if (webrtcStatus === "connecting") {
-        return webrtcRetryCount > 0 ? `Retry ${webrtcRetryCount}/3` : "Connecting...";
+    if (sourceType === "ha_entity") {
+      if (effectiveMode === "live") {
+        if (webrtcStatus === "connected") return "WebRTC";
+        if (webrtcStatus === "connecting") {
+          return webrtcRetryCount > 0 ? `Retry ${webrtcRetryCount}/3` : "Connecting...";
+        }
       }
     }
-    if (effectiveMode === "live") return "Live";
-    return "Snapshot";
+    if (sourceType === "stream_url" || sourceType === "rtsp") {
+      if (effectiveMode === "live") {
+        if (isHls) return "HLS";
+        if (isMjpeg) return "MJPEG";
+      }
+    }
+    return effectiveMode === "live" ? "Live" : "Snapshot";
   };
 
   const getModeIcon = () => {
-    if (effectiveMode === "webrtc") {
+    if (sourceType === "ha_entity" && effectiveMode === "live") {
       return webrtcStatus === "connected" ? (
         <Wifi className="w-4 h-4 text-primary" />
       ) : webrtcStatus === "connecting" ? (
@@ -88,6 +115,9 @@ export const CameraExpandedDialog = ({
       ) : (
         <WifiOff className="w-4 h-4 text-muted-foreground" />
       );
+    }
+    if ((sourceType === "stream_url" || sourceType === "rtsp") && effectiveMode === "live") {
+      return <Link className="w-4 h-4 text-primary" />;
     }
     return effectiveMode === "live" ? (
       <Video className="w-4 h-4 text-foreground/70" />
@@ -97,8 +127,8 @@ export const CameraExpandedDialog = ({
   };
 
   const renderContent = () => {
-    // WebRTC mode with shared stream
-    if (effectiveMode === "webrtc" && webrtcStream) {
+    // HA Entity with WebRTC stream
+    if (sourceType === "ha_entity" && effectiveMode === "live" && webrtcStream) {
       return (
         <div className="w-full h-full bg-black relative">
           <video
@@ -124,8 +154,8 @@ export const CameraExpandedDialog = ({
       );
     }
 
-    // WebRTC connecting
-    if (effectiveMode === "webrtc" && webrtcStatus === "connecting") {
+    // HA Entity WebRTC connecting
+    if (sourceType === "ha_entity" && effectiveMode === "live" && webrtcStatus === "connecting") {
       return (
         <div className="w-full h-full bg-black flex items-center justify-center">
           <div className="text-center">
@@ -138,7 +168,60 @@ export const CameraExpandedDialog = ({
       );
     }
 
-    // Snapshot/Live polling mode
+    // HLS stream (Stream URL or RTSP)
+    if ((sourceType === "stream_url" || sourceType === "rtsp") && effectiveMode === "live" && isHls && playbackUrl) {
+      return (
+        <div className="w-full h-full bg-black relative">
+          <video
+            ref={hlsVideoRef}
+            autoPlay
+            playsInline
+            muted={isMuted}
+            onCanPlay={handleVideoCanPlay}
+            className={cn(
+              "w-full h-full object-contain transition-opacity duration-300",
+              isVideoReady || hlsPlayer.status === "playing" ? "opacity-100" : "opacity-0"
+            )}
+          />
+          {hlsPlayer.status === "loading" && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black">
+              <div className="text-center">
+                <Link className="w-10 h-10 mx-auto mb-3 text-primary animate-pulse" />
+                <p className="text-muted-foreground">Loading HLS stream...</p>
+              </div>
+            </div>
+          )}
+          {hlsPlayer.status === "error" && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black">
+              <div className="text-center">
+                <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-destructive" />
+                <p className="text-destructive">{hlsPlayer.error || "Stream error"}</p>
+                <button
+                  onClick={() => hlsPlayer.retry()}
+                  className="mt-3 px-4 py-2 rounded-lg bg-secondary hover:bg-muted transition-colors"
+                >
+                  <RefreshCw className="w-4 h-4 inline mr-2" />
+                  Retry
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // MJPEG stream
+    if ((sourceType === "stream_url" || sourceType === "rtsp") && effectiveMode === "live" && isMjpeg && playbackUrl) {
+      return (
+        <img
+          src={playbackUrl}
+          alt={name}
+          className="w-full h-full object-contain"
+        />
+      );
+    }
+
+    // Snapshot/Live polling mode with image
     if (imageUrl) {
       return (
         <img
@@ -156,6 +239,10 @@ export const CameraExpandedDialog = ({
       </div>
     );
   };
+
+  const showAudioToggle = 
+    (sourceType === "ha_entity" && effectiveMode === "live" && webrtcStream) ||
+    ((sourceType === "stream_url" || sourceType === "rtsp") && effectiveMode === "live" && isHls);
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -183,8 +270,8 @@ export const CameraExpandedDialog = ({
 
             {/* Controls */}
             <div className="flex items-center gap-2">
-              {/* Audio toggle (WebRTC only) */}
-              {effectiveMode === "webrtc" && webrtcStream && (
+              {/* Audio toggle */}
+              {showAudioToggle && (
                 <button
                   onClick={toggleAudio}
                   className="p-2 rounded-lg bg-background/80 backdrop-blur-sm hover:bg-background transition-colors"
@@ -199,7 +286,7 @@ export const CameraExpandedDialog = ({
               )}
 
               {/* Reconnect button (WebRTC failed) */}
-              {effectiveMode === "webrtc" && webrtcStatus === "failed" && (
+              {sourceType === "ha_entity" && effectiveMode === "live" && webrtcStatus === "failed" && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onReconnect(); }}
                   className="p-2 rounded-lg bg-background/80 backdrop-blur-sm hover:bg-background transition-colors"
@@ -209,8 +296,19 @@ export const CameraExpandedDialog = ({
                 </button>
               )}
 
-              {/* Refresh button (Snapshot/Live modes) */}
-              {effectiveMode !== "webrtc" && (
+              {/* HLS retry button */}
+              {(sourceType === "stream_url" || sourceType === "rtsp") && effectiveMode === "live" && isHls && hlsPlayer.status === "error" && (
+                <button
+                  onClick={() => hlsPlayer.retry()}
+                  className="p-2 rounded-lg bg-background/80 backdrop-blur-sm hover:bg-background transition-colors"
+                  title="Retry"
+                >
+                  <RefreshCw className="w-5 h-5 text-foreground" />
+                </button>
+              )}
+
+              {/* Refresh button (Snapshot mode) */}
+              {effectiveMode === "snapshot" && (
                 <button
                   onClick={onRefresh}
                   className="p-2 rounded-lg bg-background/80 backdrop-blur-sm hover:bg-background transition-colors"

@@ -1,212 +1,314 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Camera, Maximize2, Video, Image, RefreshCw, Wifi, WifiOff } from "lucide-react";
+import { Camera, Maximize2, Video, Image, RefreshCw, Wifi, WifiOff, AlertTriangle, Link } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWidgetSize } from "@/contexts/WidgetSizeContext";
 import { useHomeAssistantContext } from "@/contexts/HomeAssistantContext";
 import { useWebRTC } from "@/hooks/useWebRTC";
+import { useHlsPlayer } from "@/hooks/useHlsPlayer";
 import { CameraExpandedDialog } from "./CameraExpandedDialog";
+import { CameraSourceType, CameraViewMode, RestreamType, CameraStatus } from "@/types/camera";
+import { 
+  isHlsUrl, 
+  isMjpegUrl, 
+  buildRestreamUrl, 
+  isValidUrl 
+} from "@/utils/streamUtils";
 
 interface CameraWidgetProps {
   name: string;
   room?: string;
+  
+  // Source type
+  sourceType?: CameraSourceType;
+  
+  // HA Entity source
   entityId?: string;
   entity_id?: string;
-  /** 'snapshot' shows a still image, 'live' uses snapshot polling, 'webrtc' uses WebRTC streaming */
-  viewMode?: "snapshot" | "live" | "webrtc";
-  /** Refresh interval for snapshots in seconds (default: 10) */
+  
+  // Stream URL source
+  streamUrl?: string;
+  snapshotUrl?: string;
+  
+  // RTSP source
+  rtspUrl?: string;
+  restreamType?: RestreamType;
+  restreamBaseUrl?: string;
+  streamName?: string;
+  
+  // View settings
+  viewMode?: CameraViewMode;
   refreshInterval?: number;
-  /** Live mode frames per second (default: 5, max 10) */
   liveFps?: number;
 }
 
 export const CameraWidget = ({
   name,
   room,
+  sourceType = "ha_entity",
   entityId,
   entity_id,
-  viewMode = "webrtc",
+  streamUrl,
+  snapshotUrl,
+  rtspUrl,
+  restreamType = "go2rtc",
+  restreamBaseUrl,
+  streamName,
+  viewMode = "live",
   refreshInterval = 10,
   liveFps = 5,
 }: CameraWidgetProps) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError] = useState(false);
+  const [cameraStatus, setCameraStatus] = useState<CameraStatus>("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [effectiveMode, setEffectiveMode] = useState<"snapshot" | "live" | "webrtc">(viewMode);
+  const [effectiveViewMode, setEffectiveViewMode] = useState<CameraViewMode>(viewMode);
   const [isVideoReady, setIsVideoReady] = useState(false);
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isMountedRef = useRef(true);
   const previousBlobUrl = useRef<string | null>(null);
+  const hlsVideoRef = useRef<HTMLVideoElement>(null);
   
   const { cols, rows, isCompact, isWide, isTall, isLarge } = useWidgetSize();
   const { getEntity, isConnected, config, wsRef, sendCommand } = useHomeAssistantContext();
 
   const resolvedEntityId = entityId ?? entity_id;
   const entity = resolvedEntityId ? getEntity(resolvedEntityId) : undefined;
-  
   const isOnline = entity?.state !== "unavailable" && entity?.state !== "unknown";
 
-  // WebRTC hook
+  // Determine the actual playback URL based on source type
+  const getPlaybackUrl = useCallback((): string | null => {
+    if (sourceType === "stream_url" && streamUrl) {
+      return streamUrl;
+    }
+    
+    if (sourceType === "rtsp" && rtspUrl) {
+      if (!restreamBaseUrl) {
+        return null; // Need restream config
+      }
+      return buildRestreamUrl(rtspUrl, restreamType, restreamBaseUrl, streamName);
+    }
+    
+    return null;
+  }, [sourceType, streamUrl, rtspUrl, restreamType, restreamBaseUrl, streamName]);
+
+  const playbackUrl = getPlaybackUrl();
+  const isHls = playbackUrl ? isHlsUrl(playbackUrl) : false;
+  const isMjpeg = playbackUrl ? isMjpegUrl(playbackUrl) : false;
+
+  // WebRTC hook (only for HA entity source)
   const webrtc = useWebRTC({
     entityId: resolvedEntityId || "",
     config,
     wsRef,
     sendCommand,
-    enabled: effectiveMode === "webrtc" && isConnected && !!resolvedEntityId,
+    enabled: sourceType === "ha_entity" && effectiveViewMode === "live" && isConnected && !!resolvedEntityId,
   });
-  
-  // Calculate actual refresh rate based on mode (live uses FPS, snapshot uses seconds)
-  const actualRefreshMs = effectiveMode === "live" 
-    ? Math.max(100, Math.round(1000 / Math.min(10, liveFps))) // 100ms min (10fps max)
+
+  // HLS player hook (for stream URL and RTSP with restream)
+  const hlsPlayer = useHlsPlayer({
+    videoRef: hlsVideoRef,
+    url: isHls ? playbackUrl || undefined : undefined,
+    enabled: effectiveViewMode === "live" && isHls && !!playbackUrl,
+    autoPlay: true,
+    muted: true,
+  });
+
+  // Calculate actual refresh rate based on mode
+  const actualRefreshMs = effectiveViewMode === "live" 
+    ? Math.max(100, Math.round(1000 / Math.min(10, liveFps)))
     : refreshInterval * 1000;
 
-  // Fetch snapshot as blob to handle auth properly (used for both modes)
-  const fetchSnapshot = useCallback(async () => {
-    if (!isMountedRef.current) return;
-    if (!config || !resolvedEntityId) {
-      setHasError(true);
+  // Fetch snapshot for HA entity source
+  const fetchHaSnapshot = useCallback(async () => {
+    if (!isMountedRef.current || !config || !resolvedEntityId) {
+      setCameraStatus("error");
+      setErrorMessage("No camera linked");
       setIsLoading(false);
       return;
     }
 
     try {
-      // Don't set loading on refresh to avoid flicker
-      if (!imageUrl) {
-        setIsLoading(true);
-      }
-      setHasError(false);
+      if (!imageUrl) setIsLoading(true);
       
       const response = await fetch(
         `${config.url}/api/camera_proxy/${resolvedEntityId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${config.token}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${config.token}` } }
       );
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
       const blob = await response.blob();
-      
       if (!isMountedRef.current) return;
       
       const url = URL.createObjectURL(blob);
-      
-      // Revoke previous URL to prevent memory leaks
-      if (previousBlobUrl.current) {
-        URL.revokeObjectURL(previousBlobUrl.current);
-      }
+      if (previousBlobUrl.current) URL.revokeObjectURL(previousBlobUrl.current);
       previousBlobUrl.current = url;
       
       setImageUrl(url);
-      setHasError(false);
+      setCameraStatus("streaming");
+      setErrorMessage(null);
     } catch (error) {
       if (!isMountedRef.current) return;
       console.error("Failed to fetch camera snapshot:", error);
-      setHasError(true);
+      setCameraStatus("error");
+      setErrorMessage("Failed to load camera");
     } finally {
-      if (isMountedRef.current) {
-        setIsLoading(false);
-      }
+      if (isMountedRef.current) setIsLoading(false);
     }
   }, [config, resolvedEntityId, imageUrl]);
 
-  // Fallback to snapshot polling if WebRTC fails after max retries
-  useEffect(() => {
-    if (viewMode === "webrtc" && webrtc.status === "failed" && webrtc.retryCount >= 3) {
-      console.log("WebRTC failed after max retries, falling back to live polling");
-      setEffectiveMode("live");
-    } else if (viewMode !== "webrtc") {
-      setEffectiveMode(viewMode);
-    }
-  }, [viewMode, webrtc.status, webrtc.retryCount]);
+  // Fetch snapshot for stream URL source
+  const fetchUrlSnapshot = useCallback(async (url: string) => {
+    if (!isMountedRef.current) return;
 
-  // Initial fetch and refresh timer (only for non-WebRTC modes)
+    try {
+      if (!imageUrl) setIsLoading(true);
+      
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const blob = await response.blob();
+      if (!isMountedRef.current) return;
+      
+      const urlObj = URL.createObjectURL(blob);
+      if (previousBlobUrl.current) URL.revokeObjectURL(previousBlobUrl.current);
+      previousBlobUrl.current = urlObj;
+      
+      setImageUrl(urlObj);
+      setCameraStatus("streaming");
+      setErrorMessage(null);
+    } catch (error) {
+      if (!isMountedRef.current) return;
+      console.error("Failed to fetch snapshot:", error);
+      setCameraStatus("error");
+      setErrorMessage("Failed to load snapshot");
+    } finally {
+      if (isMountedRef.current) setIsLoading(false);
+    }
+  }, [imageUrl]);
+
+  // Handle WebRTC fallback for HA entity
+  useEffect(() => {
+    if (sourceType === "ha_entity" && viewMode === "live" && webrtc.status === "failed" && webrtc.retryCount >= 3) {
+      console.log("WebRTC failed after max retries, falling back to snapshot polling");
+      setEffectiveViewMode("snapshot");
+    } else {
+      setEffectiveViewMode(viewMode);
+    }
+  }, [sourceType, viewMode, webrtc.status, webrtc.retryCount]);
+
+  // Update camera status based on WebRTC/HLS state
+  useEffect(() => {
+    if (sourceType === "ha_entity" && effectiveViewMode === "live") {
+      if (webrtc.status === "connecting") setCameraStatus("connecting");
+      else if (webrtc.status === "connected") setCameraStatus("streaming");
+      else if (webrtc.status === "failed") setCameraStatus("error");
+    } else if ((sourceType === "stream_url" || sourceType === "rtsp") && effectiveViewMode === "live" && isHls) {
+      if (hlsPlayer.status === "loading") setCameraStatus("loading");
+      else if (hlsPlayer.status === "playing") setCameraStatus("streaming");
+      else if (hlsPlayer.status === "error") {
+        setCameraStatus("error");
+        setErrorMessage(hlsPlayer.error || "Stream error");
+      }
+    }
+  }, [sourceType, effectiveViewMode, webrtc.status, hlsPlayer.status, hlsPlayer.error, isHls]);
+
+  // Initial fetch and refresh timer for snapshots
   useEffect(() => {
     isMountedRef.current = true;
     
-    if (!isConnected || !resolvedEntityId) {
-      return;
+    // Skip if in live mode with working stream
+    if (effectiveViewMode === "live") {
+      if (sourceType === "ha_entity" && webrtc.status !== "failed") return;
+      if ((sourceType === "stream_url" || sourceType === "rtsp") && (isHls || isMjpeg)) return;
     }
 
-    // WebRTC mode doesn't need snapshot polling
-    if (effectiveMode === "webrtc" && webrtc.status !== "failed") {
-      return;
+    // Determine snapshot URL
+    let snapshotSource: string | null = null;
+    
+    if (sourceType === "ha_entity") {
+      if (isConnected && resolvedEntityId) {
+        fetchHaSnapshot();
+        refreshTimerRef.current = setInterval(fetchHaSnapshot, actualRefreshMs);
+      }
+    } else if (sourceType === "stream_url") {
+      snapshotSource = snapshotUrl || streamUrl || null;
+      if (snapshotSource && isValidUrl(snapshotSource)) {
+        fetchUrlSnapshot(snapshotSource);
+        refreshTimerRef.current = setInterval(() => fetchUrlSnapshot(snapshotSource!), actualRefreshMs);
+      }
+    } else if (sourceType === "rtsp") {
+      if (!restreamBaseUrl) {
+        setCameraStatus("no_config");
+        setErrorMessage("RTSP needs restream config (go2rtc/Frigate)");
+      }
     }
-
-    fetchSnapshot();
-
-    // Set up refresh interval based on mode
-    refreshTimerRef.current = setInterval(() => {
-      fetchSnapshot();
-    }, actualRefreshMs);
 
     return () => {
       isMountedRef.current = false;
-      if (refreshTimerRef.current) {
-        clearInterval(refreshTimerRef.current);
-      }
+      if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
     };
-  }, [isConnected, resolvedEntityId, effectiveMode, actualRefreshMs, webrtc.status]);
+  }, [isConnected, resolvedEntityId, sourceType, effectiveViewMode, actualRefreshMs, webrtc.status, isHls, isMjpeg, snapshotUrl, streamUrl, restreamBaseUrl]);
 
   // Cleanup blob URL on unmount
   useEffect(() => {
     return () => {
-      if (previousBlobUrl.current) {
-        URL.revokeObjectURL(previousBlobUrl.current);
-      }
+      if (previousBlobUrl.current) URL.revokeObjectURL(previousBlobUrl.current);
     };
   }, []);
 
   const handleRefresh = (e: React.MouseEvent) => {
     e.stopPropagation();
-    fetchSnapshot();
+    if (sourceType === "ha_entity") {
+      fetchHaSnapshot();
+    } else if (sourceType === "stream_url" && (snapshotUrl || streamUrl)) {
+      fetchUrlSnapshot(snapshotUrl || streamUrl!);
+    }
   };
 
   const handleWidgetClick = () => {
-    // Allow tap-to-expand for all modes
-    if (!hasError) {
+    if (cameraStatus !== "error" && cameraStatus !== "no_config") {
       setIsExpanded(true);
     }
   };
 
-  // Handle video ready state for smooth transitions
   const handleVideoCanPlay = useCallback(() => {
     setIsVideoReady(true);
+    setCameraStatus("streaming");
   }, []);
 
-  // Reset video ready state when stream changes
   useEffect(() => {
-    if (webrtc.status === "connecting") {
+    if (webrtc.status === "connecting" || hlsPlayer.status === "loading") {
       setIsVideoReady(false);
     }
-  }, [webrtc.status]);
+  }, [webrtc.status, hlsPlayer.status]);
 
   const minDim = Math.min(cols, rows);
   
-  // Calculate dynamic sizes
   const iconSize = minDim >= 3 ? "w-20 h-20" : isLarge ? "w-16 h-16" : isTall ? "w-12 h-12" : isWide ? "w-10 h-10" : "w-8 h-8";
   const titleSize = minDim >= 3 ? "text-xl" : isLarge ? "text-lg" : "text-sm";
   const subtitleSize = minDim >= 3 ? "text-base" : isLarge ? "text-sm" : "text-xs";
   const padding = minDim >= 3 ? "p-4" : isLarge ? "p-3" : "p-2";
 
-  // Get mode label
   const getModeLabel = () => {
-    if (effectiveMode === "webrtc") {
-      if (webrtc.status === "connected") return "WebRTC";
-      if (webrtc.status === "connecting") {
-        return webrtc.retryCount > 0 ? `Retry ${webrtc.retryCount}/3` : "Connecting...";
+    if (sourceType === "ha_entity") {
+      if (effectiveViewMode === "live") {
+        if (webrtc.status === "connected") return "WebRTC";
+        if (webrtc.status === "connecting") return webrtc.retryCount > 0 ? `Retry ${webrtc.retryCount}/3` : "Connecting...";
       }
     }
-    if (effectiveMode === "live") return "Live";
-    return "Snapshot";
+    if (sourceType === "stream_url" || sourceType === "rtsp") {
+      if (effectiveViewMode === "live") {
+        if (isHls) return "HLS";
+        if (isMjpeg) return "MJPEG";
+      }
+    }
+    return effectiveViewMode === "live" ? "Live" : "Snapshot";
   };
 
   const getModeIcon = () => {
-    if (effectiveMode === "webrtc") {
+    if (sourceType === "ha_entity" && effectiveViewMode === "live") {
       return webrtc.status === "connected" ? (
         <Wifi className="w-3 h-3 text-primary" />
       ) : webrtc.status === "connecting" ? (
@@ -215,18 +317,21 @@ export const CameraWidget = ({
         <WifiOff className="w-3 h-3 text-muted-foreground" />
       );
     }
-    return effectiveMode === "live" ? (
+    if ((sourceType === "stream_url" || sourceType === "rtsp") && effectiveViewMode === "live") {
+      return <Link className="w-3 h-3 text-primary" />;
+    }
+    return effectiveViewMode === "live" ? (
       <Video className="w-3 h-3 text-foreground/70" />
     ) : (
       <Image className="w-3 h-3 text-foreground/70" />
     );
   };
 
-  // Render camera image/stream for widget (not dialog)
   const renderCameraFeed = () => {
     const containerClasses = "absolute inset-0";
 
-    if (!isConnected || !resolvedEntityId) {
+    // No source configured
+    if (sourceType === "ha_entity" && (!isConnected || !resolvedEntityId)) {
       return (
         <div className={cn(containerClasses, "flex items-center justify-center bg-secondary")}>
           <div className="text-center">
@@ -237,13 +342,48 @@ export const CameraWidget = ({
       );
     }
 
-    // Snapshot/Live polling error
-    if (hasError && effectiveMode !== "webrtc") {
+    if (sourceType === "stream_url" && !streamUrl) {
+      return (
+        <div className={cn(containerClasses, "flex items-center justify-center bg-secondary")}>
+          <div className="text-center">
+            <Link className={cn("mx-auto mb-2 text-muted-foreground/50", iconSize)} />
+            <p className="text-muted-foreground text-sm">No stream URL configured</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (sourceType === "rtsp" && !rtspUrl) {
+      return (
+        <div className={cn(containerClasses, "flex items-center justify-center bg-secondary")}>
+          <div className="text-center">
+            <Video className={cn("mx-auto mb-2 text-muted-foreground/50", iconSize)} />
+            <p className="text-muted-foreground text-sm">No RTSP URL configured</p>
+          </div>
+        </div>
+      );
+    }
+
+    // RTSP without restream config
+    if (cameraStatus === "no_config") {
+      return (
+        <div className={cn(containerClasses, "flex items-center justify-center bg-secondary")}>
+          <div className="text-center px-4">
+            <AlertTriangle className={cn("mx-auto mb-2 text-warning", iconSize)} />
+            <p className="text-foreground text-sm font-medium">RTSP needs restream</p>
+            <p className="text-muted-foreground text-xs mt-1">Configure go2rtc or Frigate for live view</p>
+          </div>
+        </div>
+      );
+    }
+
+    // Error state
+    if (cameraStatus === "error") {
       return (
         <div className={cn(containerClasses, "flex items-center justify-center bg-secondary")}>
           <div className="text-center">
             <Camera className={cn("mx-auto mb-2 text-destructive/50", iconSize)} />
-            <p className="text-destructive text-sm">Failed to load</p>
+            <p className="text-destructive text-sm">{errorMessage || "Failed to load"}</p>
             <button
               onClick={handleRefresh}
               className="mt-2 p-2 rounded-lg bg-background/50 hover:bg-background/80 transition-colors"
@@ -255,8 +395,8 @@ export const CameraWidget = ({
       );
     }
 
-    // WebRTC mode
-    if (effectiveMode === "webrtc" && (webrtc.status !== "failed" || webrtc.retryCount < 3)) {
+    // HA Entity with WebRTC
+    if (sourceType === "ha_entity" && effectiveViewMode === "live" && (webrtc.status !== "failed" || webrtc.retryCount < 3)) {
       return (
         <div className={cn(containerClasses, "bg-secondary")}>
           <video
@@ -270,7 +410,6 @@ export const CameraWidget = ({
               isVideoReady && webrtc.status === "connected" ? "opacity-100" : "opacity-0"
             )}
           />
-          {/* Smooth fade overlay while connecting */}
           {(webrtc.status === "connecting" || !isVideoReady) && (
             <div className={cn(
               "absolute inset-0 flex items-center justify-center bg-secondary transition-opacity duration-300",
@@ -288,7 +427,50 @@ export const CameraWidget = ({
       );
     }
 
-    // Loading state (for initial load only)
+    // HLS stream (Stream URL or RTSP with restream)
+    if ((sourceType === "stream_url" || sourceType === "rtsp") && effectiveViewMode === "live" && isHls && playbackUrl) {
+      return (
+        <div className={cn(containerClasses, "bg-secondary")}>
+          <video
+            ref={hlsVideoRef}
+            autoPlay
+            playsInline
+            muted
+            onCanPlay={handleVideoCanPlay}
+            className={cn(
+              "w-full h-full object-cover transition-opacity duration-300",
+              isVideoReady ? "opacity-100" : "opacity-0"
+            )}
+          />
+          {!isVideoReady && (
+            <div className="absolute inset-0 flex items-center justify-center bg-secondary">
+              <div className="text-center">
+                <Link className="w-8 h-8 mx-auto mb-2 text-primary animate-pulse" />
+                <p className="text-sm text-muted-foreground">Loading HLS stream...</p>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // MJPEG stream
+    if ((sourceType === "stream_url" || sourceType === "rtsp") && effectiveViewMode === "live" && isMjpeg && playbackUrl) {
+      return (
+        <img
+          src={playbackUrl}
+          alt={name}
+          className={cn(containerClasses, "object-cover")}
+          onLoad={() => setCameraStatus("streaming")}
+          onError={() => {
+            setCameraStatus("error");
+            setErrorMessage("Failed to load MJPEG stream");
+          }}
+        />
+      );
+    }
+
+    // Loading state
     if (isLoading && !imageUrl) {
       return (
         <div className={cn(containerClasses, "flex items-center justify-center bg-secondary animate-pulse")}>
@@ -297,17 +479,20 @@ export const CameraWidget = ({
       );
     }
 
+    // Snapshot image
     return (
       <img
         src={imageUrl || ""}
         alt={name}
         className={cn(containerClasses, "object-cover")}
-        onError={() => setHasError(true)}
+        onError={() => {
+          setCameraStatus("error");
+          setErrorMessage("Failed to load image");
+        }}
       />
     );
   };
 
-  // Shared expanded dialog component
   const renderExpandedDialog = () => (
     <CameraExpandedDialog
       isOpen={isExpanded}
@@ -315,7 +500,8 @@ export const CameraWidget = ({
       name={name}
       room={room}
       isOnline={isOnline}
-      effectiveMode={effectiveMode}
+      sourceType={sourceType}
+      effectiveMode={effectiveViewMode}
       webrtcStatus={webrtc.status}
       webrtcStream={webrtc.stream}
       webrtcRetryCount={webrtc.retryCount}
@@ -323,6 +509,9 @@ export const CameraWidget = ({
       imageUrl={imageUrl}
       isLoading={isLoading}
       onRefresh={handleRefresh}
+      playbackUrl={playbackUrl}
+      isHls={isHls}
+      isMjpeg={isMjpeg}
     />
   );
 
@@ -331,9 +520,7 @@ export const CameraWidget = ({
     return (
       <>
         <div 
-          className={cn(
-            "widget-card p-0 overflow-hidden group h-full cursor-pointer"
-          )}
+          className={cn("widget-card p-0 overflow-hidden group h-full cursor-pointer")}
           onClick={handleWidgetClick}
         >
           <div className="relative w-full h-full min-h-[120px]">
@@ -341,12 +528,7 @@ export const CameraWidget = ({
             <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-background/30" />
             
             <div className="absolute top-2 left-2 flex items-center gap-1">
-              <div
-                className={cn(
-                  "status-indicator",
-                  isOnline ? "status-online" : "status-offline"
-                )}
-              />
+              <div className={cn("status-indicator", isOnline ? "status-online" : "status-offline")} />
               {getModeIcon()}
             </div>
 
@@ -360,14 +542,12 @@ export const CameraWidget = ({
     );
   }
 
-  // Wide layout (not tall)
+  // Wide layout
   if (isWide && !isTall) {
     return (
       <>
         <div 
-          className={cn(
-            "widget-card p-0 overflow-hidden group h-full cursor-pointer"
-          )}
+          className={cn("widget-card p-0 overflow-hidden group h-full cursor-pointer")}
           onClick={handleWidgetClick}
         >
           <div className="relative w-full h-full min-h-[140px]">
@@ -375,20 +555,13 @@ export const CameraWidget = ({
             <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-background/30" />
 
             <div className={cn("absolute top-3 left-3 flex items-center gap-2", minDim >= 3 && "top-4 left-4")}>
-              <div
-                className={cn(
-                  "status-indicator",
-                  isOnline ? "status-online" : "status-offline"
-                )}
-              />
-              <span className={cn("text-foreground/80 drop-shadow-md", subtitleSize)}>
-                {getModeLabel()}
-              </span>
+              <div className={cn("status-indicator", isOnline ? "status-online" : "status-offline")} />
+              <span className={cn("text-foreground/80 drop-shadow-md", subtitleSize)}>{getModeLabel()}</span>
               {getModeIcon()}
             </div>
 
             <div className={cn("absolute top-3 right-3 flex items-center gap-2", minDim >= 3 && "top-4 right-4")}>
-              {effectiveMode !== "webrtc" && (
+              {effectiveViewMode === "snapshot" && (
                 <button 
                   onClick={handleRefresh}
                   className={cn("p-2 rounded-lg bg-background/50 backdrop-blur-sm opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity", minDim >= 3 && "p-3")}
@@ -406,9 +579,7 @@ export const CameraWidget = ({
 
             <div className={cn("absolute bottom-3 left-3 right-3", minDim >= 3 && "bottom-4 left-4 right-4")}>
               <h3 className={cn("font-medium text-foreground drop-shadow-md", titleSize)}>{name}</h3>
-              {room && (
-                <p className={cn("text-muted-foreground drop-shadow-md", subtitleSize)}>{room}</p>
-              )}
+              {room && <p className={cn("text-muted-foreground drop-shadow-md", subtitleSize)}>{room}</p>}
             </div>
           </div>
         </div>
@@ -421,9 +592,7 @@ export const CameraWidget = ({
   return (
     <>
       <div 
-        className={cn(
-          "widget-card p-0 overflow-hidden group h-full cursor-pointer"
-        )}
+        className={cn("widget-card p-0 overflow-hidden group h-full cursor-pointer")}
         onClick={handleWidgetClick}
       >
         <div className="relative w-full h-full min-h-[200px]">
@@ -431,20 +600,13 @@ export const CameraWidget = ({
           <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-background/30" />
 
           <div className={cn("absolute flex items-center gap-2", padding, "top-0 left-0")}>
-            <div
-              className={cn(
-                "status-indicator",
-                isOnline ? "status-online" : "status-offline"
-              )}
-            />
-            <span className={cn("text-foreground/80 drop-shadow-md", subtitleSize)}>
-              {getModeLabel()}
-            </span>
+            <div className={cn("status-indicator", isOnline ? "status-online" : "status-offline")} />
+            <span className={cn("text-foreground/80 drop-shadow-md", subtitleSize)}>{getModeLabel()}</span>
             {getModeIcon()}
           </div>
 
           <div className={cn("absolute flex items-center gap-2", padding, "top-0 right-0")}>
-            {effectiveMode !== "webrtc" && (
+            {effectiveViewMode === "snapshot" && (
               <button 
                 onClick={handleRefresh}
                 className={cn("p-2 rounded-lg bg-background/50 backdrop-blur-sm opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity", minDim >= 3 && "p-3")}
@@ -462,9 +624,7 @@ export const CameraWidget = ({
 
           <div className={cn("absolute left-0 right-0 bottom-0", padding)}>
             <h3 className={cn("font-medium text-foreground drop-shadow-md", titleSize)}>{name}</h3>
-            {room && (
-              <p className={cn("text-muted-foreground mt-1 drop-shadow-md", subtitleSize)}>{room}</p>
-            )}
+            {room && <p className={cn("text-muted-foreground mt-1 drop-shadow-md", subtitleSize)}>{room}</p>}
           </div>
         </div>
       </div>

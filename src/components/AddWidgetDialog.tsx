@@ -66,7 +66,14 @@ const widgetTypes: WidgetTypeOption[] = [
     type: "camera",
     label: "Camera",
     icon: Camera,
-    defaultProps: { name: "Camera", room: "Room", viewMode: "webrtc", refreshInterval: 10, liveFps: 5 },
+    defaultProps: { 
+      name: "Camera", 
+      room: "Room", 
+      sourceType: "ha_entity",
+      viewMode: "live", 
+      refreshInterval: 10, 
+      liveFps: 5 
+    },
   },
   {
     type: "media",
