@@ -90,9 +90,9 @@ const Index = () => {
         onOpenSettings={() => setSettingsDialogOpen(true)}
       />
       
-      <main className="ml-20 flex-1 flex flex-col overflow-hidden">
+      <main className="flex-1 flex flex-col overflow-hidden pb-16 md:pb-0 md:ml-20">
         {/* Widget Grid - Fills entire viewport */}
-        <div className="flex-1 p-4 overflow-hidden">
+        <div className="flex-1 p-3 md:p-4 overflow-hidden">
           <WidgetGrid
             widgets={pageWidgets}
             isEditMode={isEditMode}
