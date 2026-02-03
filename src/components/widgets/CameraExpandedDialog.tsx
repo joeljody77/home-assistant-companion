@@ -1,7 +1,8 @@
 import { useRef, useEffect, useCallback, useState } from "react";
 import { RefreshCw, Volume2, VolumeX, Wifi, WifiOff, Video, Image, Link, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { WebRTCStatus } from "@/hooks/useWebRTC";
 import { useHlsPlayer } from "@/hooks/useHlsPlayer";
 import { CameraSourceType, CameraViewMode } from "@/types/camera";
@@ -246,7 +247,10 @@ export const CameraExpandedDialog = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl w-[95vw] h-[85vh] p-0 overflow-hidden">
+      <DialogContent className="max-w-5xl w-[95vw] h-[85vh] p-0 overflow-hidden" aria-describedby={undefined}>
+        <VisuallyHidden>
+          <DialogTitle>{name} Camera View</DialogTitle>
+        </VisuallyHidden>
         <div className="relative w-full h-full bg-black">
           {renderContent()}
           

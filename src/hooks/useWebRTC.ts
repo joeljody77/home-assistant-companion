@@ -241,18 +241,28 @@ export const useWebRTC = ({
       }
 
       // Send offer to Home Assistant
-      console.log("Sending WebRTC offer to Home Assistant for", entityId);
-      let response: { answer?: string; error?: string; message?: string };
+      console.log("[WebRTC] Sending offer to Home Assistant for", entityId);
+      console.log("[WebRTC] WebSocket state:", wsRef.current?.readyState, "(1=OPEN)");
+      
+      let response: { answer?: string; error?: string; message?: string; code?: string };
       try {
         response = await sendCommand({
           type: "camera/web_rtc_offer",
           entity_id: entityId,
           offer: pc.localDescription?.sdp,
-        }) as { answer?: string; error?: string; message?: string };
+        }) as { answer?: string; error?: string; message?: string; code?: string };
       } catch (cmdErr) {
         // Log the actual command error for debugging
-        console.error("WebRTC command error:", cmdErr);
+        console.error("[WebRTC] Command error:", cmdErr);
         const cmdMessage = cmdErr instanceof Error ? cmdErr.message : String(cmdErr);
+        
+        // Check for common issues
+        if (cmdMessage.includes("not_found") || cmdMessage.includes("unknown_command")) {
+          throw new Error("WebRTC not supported - install go2rtc integration in Home Assistant");
+        }
+        if (cmdMessage.includes("timeout")) {
+          throw new Error("WebRTC signaling timeout - check Home Assistant connection");
+        }
         throw new Error(`WebRTC signaling failed: ${cmdMessage}`);
       }
 
@@ -261,14 +271,22 @@ export const useWebRTC = ({
         return;
       }
 
-      console.log("WebRTC response received:", JSON.stringify(response).slice(0, 200));
+      console.log("[WebRTC] Response received:", JSON.stringify(response).slice(0, 300));
 
-      if (response?.error || response?.message) {
-        throw new Error(response.error || response.message || "Unknown WebRTC error");
+      // Check for explicit error responses
+      if (response?.error || (response?.code && response.code !== "success")) {
+        const errorMsg = response.error || response.message || response.code || "Unknown error";
+        console.error("[WebRTC] Server error:", errorMsg);
+        
+        if (errorMsg.includes("not_found") || errorMsg.includes("Camera does not support WebRTC")) {
+          throw new Error("Camera does not support WebRTC - go2rtc integration required");
+        }
+        throw new Error(errorMsg);
       }
 
       if (!response?.answer) {
-        throw new Error("No WebRTC answer - camera may not support WebRTC (go2rtc required)");
+        console.error("[WebRTC] No answer in response:", response);
+        throw new Error("No WebRTC answer received - camera may not support WebRTC (go2rtc required)");
       }
 
       // Set remote description (answer from HA/go2rtc)
@@ -282,7 +300,8 @@ export const useWebRTC = ({
       if (!isMountedRef.current) return;
       
       const message = err instanceof Error ? err.message : "WebRTC connection failed";
-      console.error("WebRTC error:", message, err);
+      console.error("[WebRTC] Connection failed:", message);
+      console.error("[WebRTC] Full error:", err);
       setError(message);
       setStatus("failed");
       cleanup();
