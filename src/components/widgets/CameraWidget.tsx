@@ -203,7 +203,11 @@ export const CameraWidget = ({
     if (sourceType === "ha_entity" && effectiveViewMode === "live") {
       if (webrtc.status === "connecting") setCameraStatus("connecting");
       else if (webrtc.status === "connected") setCameraStatus("streaming");
-      else if (webrtc.status === "failed") setCameraStatus("error");
+      else if (webrtc.status === "failed") {
+        setCameraStatus("error");
+        // Show the actual WebRTC error if available
+        setErrorMessage(webrtc.error || "WebRTC connection failed");
+      }
     } else if ((sourceType === "stream_url" || sourceType === "rtsp") && effectiveViewMode === "live" && isHls) {
       if (hlsPlayer.status === "loading") setCameraStatus("loading");
       else if (hlsPlayer.status === "playing") setCameraStatus("streaming");
@@ -212,7 +216,7 @@ export const CameraWidget = ({
         setErrorMessage(hlsPlayer.error || "Stream error");
       }
     }
-  }, [sourceType, effectiveViewMode, webrtc.status, hlsPlayer.status, hlsPlayer.error, isHls]);
+  }, [sourceType, effectiveViewMode, webrtc.status, webrtc.error, hlsPlayer.status, hlsPlayer.error, isHls]);
 
   // Initial fetch and refresh timer for snapshots
   useEffect(() => {
