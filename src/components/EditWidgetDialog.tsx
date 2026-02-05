@@ -17,7 +17,7 @@ import {
   AlertTriangle, CheckCircle2 
 } from "lucide-react";
 import { WidgetConfig } from "@/hooks/useGridLayout";
-import { CameraSourceType, CameraViewMode, RestreamType } from "@/types/camera";
+import { CameraSourceType, CameraViewMode, RestreamType, RefreshInterval, REFRESH_INTERVALS } from "@/types/camera";
 import { isValidUrl, isValidRtspUrl } from "@/utils/streamUtils";
 
 interface EditWidgetDialogProps {
@@ -44,8 +44,7 @@ export const EditWidgetDialog = ({
   // Camera-specific settings
   const [sourceType, setSourceType] = useState<CameraSourceType>("ha_entity");
   const [viewMode, setViewMode] = useState<CameraViewMode>("live");
-  const [refreshInterval, setRefreshInterval] = useState(10);
-  const [liveFps, setLiveFps] = useState(5);
+  const [refreshInterval, setRefreshInterval] = useState<RefreshInterval>(10);
   
   // Stream URL source
   const [streamUrl, setStreamUrl] = useState("");
@@ -74,9 +73,8 @@ export const EditWidgetDialog = ({
       // Camera settings
       if (widget.type === "camera") {
         setSourceType((widget.props.sourceType as CameraSourceType) || "ha_entity");
-        setViewMode((widget.props.viewMode as CameraViewMode) || "live");
-        setRefreshInterval((widget.props.refreshInterval as number) || 10);
-        setLiveFps((widget.props.liveFps as number) || 5);
+        setViewMode((widget.props.viewMode as CameraViewMode) || "snapshot");
+        setRefreshInterval((widget.props.refreshInterval as RefreshInterval) || 10);
         setStreamUrl((widget.props.streamUrl as string) || "");
         setSnapshotUrl((widget.props.snapshotUrl as string) || "");
         setRtspUrl((widget.props.rtspUrl as string) || "");
@@ -104,7 +102,6 @@ export const EditWidgetDialog = ({
       updatedProps.sourceType = sourceType;
       updatedProps.viewMode = viewMode;
       updatedProps.refreshInterval = refreshInterval;
-      updatedProps.liveFps = liveFps;
       
       if (sourceType === "stream_url") {
         updatedProps.streamUrl = streamUrl;
@@ -375,20 +372,20 @@ export const EditWidgetDialog = ({
 
       {/* View Mode Selector */}
       <div className="space-y-2">
-        <Label>View Mode</Label>
+        <Label>Default View Mode</Label>
         <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
-            onClick={() => setViewMode("live")}
+            onClick={() => setViewMode("mjpeg")}
             className={cn(
               "flex flex-col items-center justify-center gap-1 p-3 rounded-lg border transition-all",
-              viewMode === "live"
+              viewMode === "mjpeg" || viewMode === "live"
                 ? "bg-primary text-primary-foreground border-primary"
                 : "bg-secondary border-border active:scale-95"
             )}
           >
-            <Wifi className="w-4 h-4" />
-            <span className="text-xs font-medium">Live</span>
+            <Video className="w-4 h-4" />
+            <span className="text-xs font-medium">Stream</span>
           </button>
           <button
             type="button"
@@ -405,28 +402,36 @@ export const EditWidgetDialog = ({
           </button>
         </div>
         <p className="text-xs text-muted-foreground">
-          {viewMode === "live" 
-            ? sourceType === "ha_entity" 
-              ? "Uses WebRTC if available, falls back to polling." 
-              : "Streams video in real-time."
-            : "Shows still images, refreshed periodically."}
+          {viewMode === "snapshot" 
+            ? "Shows still images, refreshed at the selected interval."
+            : "Streams video via MJPEG or HLS (if supported)."}
         </p>
       </div>
 
       {/* Refresh Settings */}
-      {viewMode === "snapshot" && (
-        <div className="space-y-2">
-          <Label htmlFor="refresh-interval">Refresh Interval (seconds)</Label>
-          <Input
-            id="refresh-interval"
-            type="number"
-            min={5}
-            max={300}
-            value={refreshInterval}
-            onChange={(e) => setRefreshInterval(Math.max(5, parseInt(e.target.value) || 10))}
-          />
+      <div className="space-y-2">
+        <Label>Refresh Interval</Label>
+        <div className="flex flex-wrap gap-2">
+          {REFRESH_INTERVALS.map((interval) => (
+            <button
+              key={interval}
+              type="button"
+              onClick={() => setRefreshInterval(interval)}
+              className={cn(
+                "px-3 py-1.5 rounded-lg border text-sm transition-all",
+                refreshInterval === interval
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-secondary border-border active:scale-95"
+              )}
+            >
+              {interval === 0 ? "Manual" : `${interval}s`}
+            </button>
+          ))}
         </div>
-      )}
+        <p className="text-xs text-muted-foreground">
+          How often to refresh snapshots. "Manual" = only on tap.
+        </p>
+      </div>
     </div>
   );
 

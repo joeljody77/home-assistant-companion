@@ -70,9 +70,10 @@ const widgetTypes: WidgetTypeOption[] = [
       name: "Camera", 
       room: "Room", 
       sourceType: "ha_entity",
-      viewMode: "live", 
-      refreshInterval: 10, 
-      liveFps: 5 
+      viewMode: "snapshot", 
+      refreshInterval: 10,
+      quality: "high",
+      pauseWhenHidden: true,
     },
   },
   {

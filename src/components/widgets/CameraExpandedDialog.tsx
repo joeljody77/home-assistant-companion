@@ -1,329 +1,319 @@
-import { useRef, useEffect, useCallback, useState } from "react";
-import { RefreshCw, Volume2, VolumeX, Wifi, WifiOff, Video, Image, Link, AlertTriangle } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
-import { WebRTCStatus } from "@/hooks/useWebRTC";
-import { useHlsPlayer } from "@/hooks/useHlsPlayer";
-import { CameraSourceType, CameraViewMode } from "@/types/camera";
-
-interface CameraExpandedDialogProps {
-  isOpen: boolean;
-  onOpenChange: (open: boolean) => void;
-  name: string;
-  room?: string;
-  isOnline: boolean;
-  sourceType: CameraSourceType;
-  effectiveMode: CameraViewMode;
-  webrtcStatus: WebRTCStatus;
-  webrtcStream: MediaStream | null;
-  webrtcRetryCount: number;
-  onReconnect: () => void;
-  imageUrl: string | null;
-  isLoading: boolean;
-  onRefresh: (e: React.MouseEvent) => void;
-  // Stream URL/RTSP props
-  playbackUrl?: string | null;
-  isHls?: boolean;
-  isMjpeg?: boolean;
-}
-
-export const CameraExpandedDialog = ({
-  isOpen,
-  onOpenChange,
-  name,
-  room,
-  isOnline,
-  sourceType,
-  effectiveMode,
-  webrtcStatus,
-  webrtcStream,
-  webrtcRetryCount,
-  onReconnect,
-  imageUrl,
-  isLoading,
-  onRefresh,
-  playbackUrl,
-  isHls = false,
-  isMjpeg = false,
-}: CameraExpandedDialogProps) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const hlsVideoRef = useRef<HTMLVideoElement>(null);
-  const [isMuted, setIsMuted] = useState(true);
-  const [isVideoReady, setIsVideoReady] = useState(false);
-
-  // HLS player for stream URL/RTSP sources
-  const hlsPlayer = useHlsPlayer({
-    videoRef: hlsVideoRef,
-    url: isOpen && isHls ? playbackUrl || undefined : undefined,
-    enabled: isOpen && effectiveMode === "live" && isHls && !!playbackUrl,
-    autoPlay: true,
-    muted: isMuted,
-  });
-
-  // Sync WebRTC stream to video when dialog opens
-  useEffect(() => {
-    if (isOpen && videoRef.current && webrtcStream) {
-      videoRef.current.srcObject = webrtcStream;
-      videoRef.current.muted = isMuted;
-      setIsVideoReady(false);
-    }
-  }, [isOpen, webrtcStream, isMuted]);
-
-  // Reset video ready state when stream changes
-  useEffect(() => {
-    setIsVideoReady(false);
-  }, [webrtcStream, playbackUrl]);
-
-  const handleVideoCanPlay = useCallback(() => {
-    setIsVideoReady(true);
-  }, []);
-
-  const toggleAudio = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsMuted(prev => {
-      const newMuted = !prev;
-      if (videoRef.current) videoRef.current.muted = newMuted;
-      if (hlsVideoRef.current) hlsVideoRef.current.muted = newMuted;
-      return newMuted;
-    });
-  }, []);
-
-  const getModeLabel = () => {
-    if (sourceType === "ha_entity") {
-      if (effectiveMode === "live") {
-        if (webrtcStatus === "connected") return "WebRTC";
-        if (webrtcStatus === "connecting") {
-          return webrtcRetryCount > 0 ? `Retry ${webrtcRetryCount}/3` : "Connecting...";
-        }
-      }
-    }
-    if (sourceType === "stream_url" || sourceType === "rtsp") {
-      if (effectiveMode === "live") {
-        if (isHls) return "HLS";
-        if (isMjpeg) return "MJPEG";
-      }
-    }
-    return effectiveMode === "live" ? "Live" : "Snapshot";
-  };
-
-  const getModeIcon = () => {
-    if (sourceType === "ha_entity" && effectiveMode === "live") {
-      return webrtcStatus === "connected" ? (
-        <Wifi className="w-4 h-4 text-primary" />
-      ) : webrtcStatus === "connecting" ? (
-        <Wifi className="w-4 h-4 text-muted-foreground animate-pulse" />
-      ) : (
-        <WifiOff className="w-4 h-4 text-muted-foreground" />
-      );
-    }
-    if ((sourceType === "stream_url" || sourceType === "rtsp") && effectiveMode === "live") {
-      return <Link className="w-4 h-4 text-primary" />;
-    }
-    return effectiveMode === "live" ? (
-      <Video className="w-4 h-4 text-foreground/70" />
-    ) : (
-      <Image className="w-4 h-4 text-foreground/70" />
-    );
-  };
-
-  const renderContent = () => {
-    // HA Entity with WebRTC stream
-    if (sourceType === "ha_entity" && effectiveMode === "live" && webrtcStream) {
-      return (
-        <div className="w-full h-full bg-black relative">
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted={isMuted}
-            onCanPlay={handleVideoCanPlay}
-            className={cn(
-              "w-full h-full object-contain transition-opacity duration-300",
-              isVideoReady ? "opacity-100" : "opacity-0"
-            )}
-          />
-          {!isVideoReady && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black">
-              <div className="text-center">
-                <Wifi className="w-10 h-10 mx-auto mb-3 text-primary animate-pulse" />
-                <p className="text-muted-foreground">Loading stream...</p>
-              </div>
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    // HA Entity WebRTC connecting
-    if (sourceType === "ha_entity" && effectiveMode === "live" && webrtcStatus === "connecting") {
-      return (
-        <div className="w-full h-full bg-black flex items-center justify-center">
-          <div className="text-center">
-            <Wifi className="w-10 h-10 mx-auto mb-3 text-primary animate-pulse" />
-            <p className="text-muted-foreground">
-              {webrtcRetryCount > 0 ? `Retrying (${webrtcRetryCount}/3)...` : "Connecting WebRTC..."}
-            </p>
-          </div>
-        </div>
-      );
-    }
-
-    // HLS stream (Stream URL or RTSP)
-    if ((sourceType === "stream_url" || sourceType === "rtsp") && effectiveMode === "live" && isHls && playbackUrl) {
-      return (
-        <div className="w-full h-full bg-black relative">
-          <video
-            ref={hlsVideoRef}
-            autoPlay
-            playsInline
-            muted={isMuted}
-            onCanPlay={handleVideoCanPlay}
-            className={cn(
-              "w-full h-full object-contain transition-opacity duration-300",
-              isVideoReady || hlsPlayer.status === "playing" ? "opacity-100" : "opacity-0"
-            )}
-          />
-          {hlsPlayer.status === "loading" && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black">
-              <div className="text-center">
-                <Link className="w-10 h-10 mx-auto mb-3 text-primary animate-pulse" />
-                <p className="text-muted-foreground">Loading HLS stream...</p>
-              </div>
-            </div>
-          )}
-          {hlsPlayer.status === "error" && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black">
-              <div className="text-center">
-                <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-destructive" />
-                <p className="text-destructive">{hlsPlayer.error || "Stream error"}</p>
-                <button
-                  onClick={() => hlsPlayer.retry()}
-                  className="mt-3 px-4 py-2 rounded-lg bg-secondary hover:bg-muted transition-colors"
-                >
-                  <RefreshCw className="w-4 h-4 inline mr-2" />
-                  Retry
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    // MJPEG stream
-    if ((sourceType === "stream_url" || sourceType === "rtsp") && effectiveMode === "live" && isMjpeg && playbackUrl) {
-      return (
-        <img
-          src={playbackUrl}
-          alt={name}
-          className="w-full h-full object-contain"
-        />
-      );
-    }
-
-    // Snapshot/Live polling mode with image
-    if (imageUrl) {
-      return (
-        <img
-          src={imageUrl}
-          alt={name}
-          className="w-full h-full object-contain"
-        />
-      );
-    }
-
-    // Fallback
-    return (
-      <div className="w-full h-full bg-black flex items-center justify-center">
-        <p className="text-muted-foreground">No stream available</p>
-      </div>
-    );
-  };
-
-  const showAudioToggle = 
-    (sourceType === "ha_entity" && effectiveMode === "live" && webrtcStream) ||
-    ((sourceType === "stream_url" || sourceType === "rtsp") && effectiveMode === "live" && isHls);
-
-  return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl w-[95vw] h-[85vh] p-0 overflow-hidden" aria-describedby={undefined}>
-        <VisuallyHidden>
-          <DialogTitle>{name} Camera View</DialogTitle>
-        </VisuallyHidden>
-        <div className="relative w-full h-full bg-black">
-          {renderContent()}
-          
-          {/* Top overlay with info and controls */}
-          <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
-            {/* Camera info */}
-            <div className="flex items-center gap-3 bg-background/80 backdrop-blur-sm rounded-lg px-4 py-2">
-              <div
-                className={cn(
-                  "status-indicator",
-                  isOnline ? "status-online" : "status-offline"
-                )}
-              />
-              <span className="text-foreground font-medium">{name}</span>
-              {room && <span className="text-muted-foreground">• {room}</span>}
-              <div className="flex items-center gap-1 text-muted-foreground text-sm">
-                {getModeIcon()}
-                <span>{getModeLabel()}</span>
-              </div>
-            </div>
-
-            {/* Controls */}
-            <div className="flex items-center gap-2">
-              {/* Audio toggle */}
-              {showAudioToggle && (
-                <button
-                  onClick={toggleAudio}
-                  className="p-2 rounded-lg bg-background/80 backdrop-blur-sm hover:bg-background transition-colors"
-                  title={isMuted ? "Unmute" : "Mute"}
-                >
-                  {isMuted ? (
-                    <VolumeX className="w-5 h-5 text-foreground" />
-                  ) : (
-                    <Volume2 className="w-5 h-5 text-primary" />
-                  )}
-                </button>
-              )}
-
-              {/* Reconnect button (WebRTC failed) */}
-              {sourceType === "ha_entity" && effectiveMode === "live" && webrtcStatus === "failed" && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onReconnect(); }}
-                  className="p-2 rounded-lg bg-background/80 backdrop-blur-sm hover:bg-background transition-colors"
-                  title="Reconnect"
-                >
-                  <RefreshCw className="w-5 h-5 text-foreground" />
-                </button>
-              )}
-
-              {/* HLS retry button */}
-              {(sourceType === "stream_url" || sourceType === "rtsp") && effectiveMode === "live" && isHls && hlsPlayer.status === "error" && (
-                <button
-                  onClick={() => hlsPlayer.retry()}
-                  className="p-2 rounded-lg bg-background/80 backdrop-blur-sm hover:bg-background transition-colors"
-                  title="Retry"
-                >
-                  <RefreshCw className="w-5 h-5 text-foreground" />
-                </button>
-              )}
-
-              {/* Refresh button (Snapshot mode) */}
-              {effectiveMode === "snapshot" && (
-                <button
-                  onClick={onRefresh}
-                  className="p-2 rounded-lg bg-background/80 backdrop-blur-sm hover:bg-background transition-colors"
-                >
-                  <RefreshCw className={cn("w-5 h-5 text-foreground", isLoading && "animate-spin")} />
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-};
+ import { useRef, useEffect, useCallback, useState } from "react";
+ import { RefreshCw, Volume2, VolumeX, Video, Image, Link, AlertTriangle, Loader2, Circle, Mic, MicOff } from "lucide-react";
+ import { cn } from "@/lib/utils";
+ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+ import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
+ import { Button } from "@/components/ui/button";
+ import { useHlsPlayer, HlsStatus } from "@/hooks/useHlsPlayer";
+ import { CameraSourceType, PTZConfig, AudioConfig, RecordingConfig, RefreshInterval, REFRESH_INTERVALS } from "@/types/camera";
+ import { PTZControls, PTZCommand } from "./camera/PTZControls";
+ import { useHomeAssistantContext } from "@/contexts/HomeAssistantContext";
+ import { StreamType } from "@/hooks/useCameraStream";
+ import {
+   DropdownMenu,
+   DropdownMenuContent,
+   DropdownMenuItem,
+   DropdownMenuTrigger,
+   DropdownMenuSeparator,
+   DropdownMenuLabel,
+ } from "@/components/ui/dropdown-menu";
+ 
+ interface CameraStreamState {
+   status: string;
+   error: string | null;
+   imageUrl: string | null;
+   streamUrl: string | null;
+   streamType: StreamType;
+   isLoading: boolean;
+   refresh: () => void;
+   setRefreshInterval: (interval: RefreshInterval) => void;
+ }
+ 
+ interface HlsPlayerState {
+   status: HlsStatus;
+   error: string | null;
+   retry: () => void;
+ }
+ 
+ interface CameraExpandedDialogProps {
+   isOpen: boolean;
+   onOpenChange: (open: boolean) => void;
+   name: string;
+   room?: string;
+   isOnline: boolean;
+   sourceType: CameraSourceType;
+   cameraStream: CameraStreamState;
+   hlsPlayer: HlsPlayerState;
+   ptz?: PTZConfig;
+   audio?: AudioConfig;
+   recording?: RecordingConfig;
+ }
+ 
+ export const CameraExpandedDialog = ({
+   isOpen,
+   onOpenChange,
+   name,
+   room,
+   isOnline,
+   sourceType,
+   cameraStream,
+   hlsPlayer,
+   ptz,
+   audio,
+   recording,
+ }: CameraExpandedDialogProps) => {
+   const hlsVideoRef = useRef<HTMLVideoElement>(null);
+   const [isMuted, setIsMuted] = useState(true);
+   const [isTalkbackActive, setIsTalkbackActive] = useState(false);
+   const [isRecording, setIsRecording] = useState(false);
+   const [currentRefreshInterval, setCurrentRefreshInterval] = useState<RefreshInterval>(10);
+   
+   const { callService, sendCommand } = useHomeAssistantContext();
+ 
+   // Local HLS player for the expanded dialog
+   const localHlsPlayer = useHlsPlayer({
+     videoRef: hlsVideoRef,
+     url: isOpen && cameraStream.streamType === "hls" ? cameraStream.streamUrl || undefined : undefined,
+     enabled: isOpen && cameraStream.streamType === "hls" && !!cameraStream.streamUrl,
+     autoPlay: true,
+     muted: isMuted,
+   });
+ 
+   // Update muted state on video element
+   useEffect(() => {
+     if (hlsVideoRef.current) {
+       hlsVideoRef.current.muted = isMuted;
+     }
+   }, [isMuted]);
+ 
+   const toggleAudio = useCallback((e: React.MouseEvent) => {
+     e.stopPropagation();
+     setIsMuted(prev => !prev);
+   }, []);
+ 
+   const handlePTZCommand = useCallback(async (command: PTZCommand) => {
+     if (!ptz) return;
+     
+     // Map command to HA service
+     let service: string | undefined;
+     const data: Record<string, unknown> = {};
+     
+     switch (command.type) {
+       case "pan_left": service = ptz.panLeftService; break;
+       case "pan_right": service = ptz.panRightService; break;
+       case "tilt_up": service = ptz.tiltUpService; break;
+       case "tilt_down": service = ptz.tiltDownService; break;
+       case "zoom_in": service = ptz.zoomInService; break;
+       case "zoom_out": service = ptz.zoomOutService; break;
+       case "home": service = "camera.ptz_home"; break;
+       case "preset":
+         const preset = ptz.presets?.find(p => p.id === command.presetId);
+         service = preset?.service || "camera.goto_preset";
+         data.preset = command.presetId;
+         break;
+     }
+     
+     if (service) {
+       const [domain, serviceName] = service.split(".");
+       await sendCommand({ type: "call_service", domain, service: serviceName, service_data: data });
+     }
+   }, [ptz, sendCommand]);
+ 
+   const handleTalkbackToggle = useCallback(() => {
+     if (!audio?.talkbackService) return;
+     setIsTalkbackActive(prev => !prev);
+     // In a real implementation, this would start/stop audio capture and send to HA
+   }, [audio]);
+ 
+   const handleRecordToggle = useCallback(async () => {
+     if (!recording?.recordService) return;
+     setIsRecording(prev => !prev);
+     const [domain, service] = recording.recordService.split(".");
+     await sendCommand({ type: "call_service", domain, service, service_data: {} });
+   }, [recording, sendCommand]);
+ 
+   const handleRefreshIntervalChange = useCallback((interval: RefreshInterval) => {
+     setCurrentRefreshInterval(interval);
+     cameraStream.setRefreshInterval(interval);
+   }, [cameraStream]);
+ 
+   const getModeLabel = () => {
+     switch (cameraStream.streamType) {
+       case "mjpeg": return "MJPEG Stream";
+       case "hls": return "HLS Stream";
+       default: return currentRefreshInterval === 0 ? "Manual Refresh" : `Snapshot (${currentRefreshInterval}s)`;
+     }
+   };
+ 
+   const getModeIcon = () => {
+     if (cameraStream.streamType === "mjpeg" || cameraStream.streamType === "hls") {
+       return <Video className="w-4 h-4 text-primary" />;
+     }
+     return <Image className="w-4 h-4 text-foreground/70" />;
+   };
+ 
+   const renderContent = () => {
+     // MJPEG stream
+     if (cameraStream.streamType === "mjpeg" && cameraStream.streamUrl) {
+       return <img src={cameraStream.streamUrl} alt={name} className="w-full h-full object-contain" />;
+     }
+ 
+     // HLS stream
+     if (cameraStream.streamType === "hls" && cameraStream.streamUrl) {
+       return (
+         <div className="w-full h-full bg-black relative">
+           <video
+             ref={hlsVideoRef}
+             autoPlay
+             playsInline
+             muted={isMuted}
+             className="w-full h-full object-contain"
+           />
+           {localHlsPlayer.status === "loading" && (
+             <div className="absolute inset-0 flex items-center justify-center bg-black">
+               <Loader2 className="w-10 h-10 text-primary animate-spin" />
+             </div>
+           )}
+           {localHlsPlayer.status === "error" && (
+             <div className="absolute inset-0 flex items-center justify-center bg-black">
+               <div className="text-center">
+                 <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-destructive" />
+                 <p className="text-destructive">{localHlsPlayer.error}</p>
+                 <Button variant="secondary" className="mt-3" onClick={() => localHlsPlayer.retry()}>
+                   <RefreshCw className="w-4 h-4 mr-2" /> Retry
+                 </Button>
+               </div>
+             </div>
+           )}
+         </div>
+       );
+     }
+ 
+     // Snapshot
+     if (cameraStream.imageUrl) {
+       return <img src={cameraStream.imageUrl} alt={name} className="w-full h-full object-contain" />;
+     }
+ 
+     // Loading
+     if (cameraStream.isLoading) {
+       return (
+         <div className="w-full h-full bg-black flex items-center justify-center">
+           <Loader2 className="w-10 h-10 text-primary animate-spin" />
+         </div>
+       );
+     }
+ 
+     return (
+       <div className="w-full h-full bg-black flex items-center justify-center">
+         <p className="text-muted-foreground">No stream available</p>
+       </div>
+     );
+   };
+ 
+   const showAudioToggle = audio?.enabled && (cameraStream.streamType === "hls" || cameraStream.streamType === "mjpeg");
+   const showPTZ = ptz?.enabled;
+   const showRecording = recording?.enabled;
+   const showTalkback = audio?.supportsTwoWay;
+ 
+   return (
+     <Dialog open={isOpen} onOpenChange={onOpenChange}>
+       <DialogContent className="max-w-5xl w-[95vw] h-[85vh] p-0 overflow-hidden">
+         <VisuallyHidden>
+           <DialogTitle>{name} Camera View</DialogTitle>
+         </VisuallyHidden>
+         <div className="relative w-full h-full bg-black flex">
+           {/* Main video area */}
+           <div className="flex-1 relative">
+             {renderContent()}
+             
+             {/* Top overlay */}
+             <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
+               <div className="flex items-center gap-3 bg-background/80 backdrop-blur-sm rounded-lg px-4 py-2">
+                 <div className={cn("status-indicator", isOnline ? "status-online" : "status-offline")} />
+                 <span className="text-foreground font-medium">{name}</span>
+                 {room && <span className="text-muted-foreground">• {room}</span>}
+                 <div className="flex items-center gap-1 text-muted-foreground text-sm">
+                   {getModeIcon()}
+                   <span>{getModeLabel()}</span>
+                 </div>
+               </div>
+ 
+               {/* Controls */}
+               <div className="flex items-center gap-2">
+                 {/* Audio toggle */}
+                 {showAudioToggle && (
+                   <Button size="icon" variant="ghost" className="bg-background/80 backdrop-blur-sm" onClick={toggleAudio}>
+                     {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5 text-primary" />}
+                   </Button>
+                 )}
+ 
+                 {/* Talkback */}
+                 {showTalkback && (
+                   <Button 
+                     size="icon" 
+                     variant={isTalkbackActive ? "default" : "ghost"} 
+                     className="bg-background/80 backdrop-blur-sm"
+                     onPointerDown={handleTalkbackToggle}
+                     onPointerUp={handleTalkbackToggle}
+                   >
+                     {isTalkbackActive ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+                   </Button>
+                 )}
+ 
+                 {/* Recording */}
+                 {showRecording && (
+                   <Button 
+                     size="icon" 
+                     variant={isRecording ? "destructive" : "ghost"} 
+                     className="bg-background/80 backdrop-blur-sm"
+                     onClick={handleRecordToggle}
+                   >
+                     <Circle className={cn("w-5 h-5", isRecording && "fill-current animate-pulse")} />
+                   </Button>
+                 )}
+ 
+                 {/* Refresh interval dropdown */}
+                 <DropdownMenu>
+                   <DropdownMenuTrigger asChild>
+                     <Button size="icon" variant="ghost" className="bg-background/80 backdrop-blur-sm">
+                       <RefreshCw className={cn("w-5 h-5", cameraStream.isLoading && "animate-spin")} />
+                     </Button>
+                   </DropdownMenuTrigger>
+                   <DropdownMenuContent align="end">
+                     <DropdownMenuLabel>Refresh Interval</DropdownMenuLabel>
+                     <DropdownMenuSeparator />
+                     {REFRESH_INTERVALS.map((interval) => (
+                       <DropdownMenuItem
+                         key={interval}
+                         onClick={() => handleRefreshIntervalChange(interval)}
+                         className={cn(currentRefreshInterval === interval && "bg-accent")}
+                       >
+                         {interval === 0 ? "Manual" : `${interval}s`}
+                       </DropdownMenuItem>
+                     ))}
+                     <DropdownMenuSeparator />
+                     <DropdownMenuItem onClick={() => cameraStream.refresh()}>
+                       Refresh Now
+                     </DropdownMenuItem>
+                   </DropdownMenuContent>
+                 </DropdownMenu>
+               </div>
+             </div>
+           </div>
+ 
+           {/* PTZ controls panel (right side) */}
+           {showPTZ && ptz && (
+             <div className="w-[180px] bg-background/95 backdrop-blur-sm border-l border-border p-4 flex flex-col items-center justify-center">
+               <p className="text-sm font-medium text-foreground mb-4">PTZ Control</p>
+               <PTZControls
+                 config={ptz}
+                 onCommand={handlePTZCommand}
+                 variant="dpad"
+               />
+             </div>
+           )}
+         </div>
+       </DialogContent>
+     </Dialog>
+   );
+ };

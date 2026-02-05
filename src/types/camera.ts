@@ -4,8 +4,46 @@ export type CameraSourceType = "ha_entity" | "stream_url" | "rtsp";
 // Restream service types
 export type RestreamType = "go2rtc" | "frigate";
 
-// Camera view modes
-export type CameraViewMode = "snapshot" | "live";
+// Camera view modes  
+export type CameraViewMode = "snapshot" | "live" | "mjpeg";
+
+// Snapshot refresh interval presets (in seconds)
+export const REFRESH_INTERVALS = [1, 2, 5, 10, 30, 60, 0] as const; // 0 = manual
+export type RefreshInterval = typeof REFRESH_INTERVALS[number];
+
+// PTZ capability and configuration
+export interface PTZConfig {
+  enabled: boolean;
+  // Service mappings for PTZ control
+  panLeftService?: string;  // e.g., "camera.ptz_left" or custom
+  panRightService?: string;
+  tiltUpService?: string;
+  tiltDownService?: string;
+  zoomInService?: string;
+  zoomOutService?: string;
+  // Presets
+  presets?: PTZPreset[];
+}
+
+export interface PTZPreset {
+  id: string;
+  name: string;
+  service?: string; // Optional custom service, otherwise uses camera.goto_preset
+}
+
+// Audio configuration
+export interface AudioConfig {
+  enabled: boolean;
+  supportsTwoWay: boolean;
+  talkbackService?: string; // e.g., "camera.enable_audio" or custom
+}
+
+// Recording configuration  
+export interface RecordingConfig {
+  enabled: boolean;
+  recordService?: string; // e.g., "camera.record" or custom
+  clipService?: string;   // Service to save a clip
+}
 
 // Camera widget configuration interface
 export interface CameraConfig {
@@ -31,8 +69,16 @@ export interface CameraConfig {
   
   // View mode and settings
   viewMode: CameraViewMode;
-  refreshInterval: number;      // For snapshot mode (seconds)
-  liveFps: number;              // For live polling fallback
+  refreshInterval: RefreshInterval; // For snapshot mode (seconds)
+  
+  // Advanced features
+  ptz?: PTZConfig;
+  audio?: AudioConfig;
+  recording?: RecordingConfig;
+  
+  // Quality settings (for Camera Wall)
+  quality?: "low" | "high";
+  pauseWhenHidden?: boolean;
 }
 
 // Camera connection status
@@ -62,7 +108,8 @@ export interface CameraError {
 // Default camera configuration
 export const DEFAULT_CAMERA_CONFIG: Partial<CameraConfig> = {
   sourceType: "ha_entity",
-  viewMode: "live",
+  viewMode: "snapshot",
   refreshInterval: 10,
-  liveFps: 5,
+  quality: "high",
+  pauseWhenHidden: true,
 };
